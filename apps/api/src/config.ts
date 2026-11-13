@@ -11,6 +11,7 @@ const configSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   APP_ORIGIN: z.string().url().default('http://localhost:5173'),
   DATABASE_URL: databaseUrl,
+  DATABASE_URL_DIRECT: databaseUrl.optional(),
   PG_POOL_MAX: z.coerce.number().int().min(1).max(100).default(20),
 }).superRefine((config, ctx) => {
   const origin = URL.parse(config.APP_ORIGIN);

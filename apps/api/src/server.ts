@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { readConfig } from './config.js';
 import { createPool } from './db/pool.js';
+import { migrate } from './db/migrate.js';
+import { logDatabaseError } from './db/errors.js';
 
 async function main() {
   const config = readConfig();
@@ -10,8 +12,16 @@ async function main() {
   const webDirectory = fileURLToPath(new URL('../../web/dist/', import.meta.url));
   if (production) await access(`${webDirectory}index.html`);
 
+  const migrationPool = createPool({ ...config, DATABASE_URL: config.DATABASE_URL_DIRECT ?? config.DATABASE_URL });
+  try {
+    const applied = await migrate(migrationPool);
+    console.info(JSON.stringify({ event: 'migrations.complete', applied }));
+  } catch (error) {
+    logDatabaseError('migrations.failed', error);
+    throw new Error('Database migration failed; startup stopped.');
+  } finally { await migrationPool.end(); }
+
   const pool = createPool(config);
-  pool.on('error', () => console.error(JSON.stringify({ event: 'database.connection.failed' })));
   const app = createApp({
     production,
     ...(production ? { webDirectory } : {}),

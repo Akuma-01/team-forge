@@ -1,15 +1,16 @@
 # TeamForge Build Status
 
 Last updated: 2026-11-13 UTC
-Current phase: 0 — passed; stopped at the requested commit boundary
+Current phase: 1 — local gate passed; stopped for user review/commit
 Repository/branch: `team-forge`, `main`
-Milestone commit: `chore: establish TeamForge project foundation` (this commit; use `git log -1` for its SHA)
+Base commit: `a2f2995` (`chore: establish TeamForge project foundation`)
+Phase 1 changes: uncommitted and unstaged, as requested. No push or remote workflow run.
 
 | Phase | Status | Evidence | Remaining blocker |
 |---|---|---|---|
-| 0 | passed | Command results below; API tests and browser smoke script | None for the native local foundation; Docker validation deferred |
-| 1 | not-started | — | Intentional milestone boundary |
-| 2 | not-started | — | Phase 1 |
+| 0 | passed | [Phase 0 record](milestones/PHASE_0.md) | Docker verification still deferred |
+| 1 | passed (local) | Commands and tests below | Remote CI unverified until commit/push |
+| 2 | not-started | — | User's next milestone instruction |
 | 3 | not-started | — | Phase 2 |
 | 4 | not-started | — | Phase 3 |
 | 5 | not-started | — | Phase 4 |
@@ -21,60 +22,65 @@ Milestone commit: `chore: establish TeamForge project foundation` (this commit; 
 
 ## Last completed work
 
-- Established npm workspaces in `apps/api`, `apps/web`, `packages/shared`, exact dependency pins and Node 22.19.0 selection.
-- Added an Express app factory, environment validation, bounded PostgreSQL pool, liveness/readiness, request IDs, JSON error envelopes and same-origin production SPA serving.
-- Added a responsive React shell, Vite development proxy, shared error/health schemas and DTO types, and focused configuration/HTTP checks.
-- Prepared separate local development/test PostgreSQL Compose services, Docker/Render configuration, environment examples and reproducible setup documentation.
+- `apps/api/src/db/migrations/`: specified schema and triggers. Capacity, one membership per hackathon, matching hackathons, membership immutability, deferred leadership/count checks, version updates and append-only audit history are enforced in PostgreSQL. Incomplete teams are allowed.
+- `db/migrate.ts`: ordered, checksummed migration history with a transaction-scoped advisory lock. All pending migrations and history commit together. Modified/deleted/reordered history fails. Server startup migrates through the direct database URL when configured.
+- `db/tx.ts`, `db/client.ts`, `db/errors.ts`, `db/pool.ts`: one-client READ COMMITTED transactions, bounded acquisition/lock/query/idle waits, rollback/discard/release, three total attempts for 40P01/40001 only, release before backoff, awaited hooks after COMMIT, safe diagnostics and named-constraint error mapping. Swallowed SQL failures cannot produce apparent success.
+- `db/invariants.ts` and CLI scripts: B.1–B.8, optional hackathon UUID scope and nonzero failure exit. Read-only diagnostic checks use one consistent snapshot; business transactions remain READ COMMITTED.
+- `apps/api/test/`: dedicated database guard, isolated schemas, factories, HTTP helper and explicit coordination signals. Tests cover migrations, constraints, rollback, real deadlocks, retries, timeouts, broken connections, audit and checker scope.
+- `.github/workflows/ci.yml`: PostgreSQL 16, pool size 20, install/lint/typecheck/migrate twice/tests/invariants/build. API/Docker builds package SQL migrations. Tool scripts are typechecked.
 
 ## Commands actually run
 
-All successful project checks used Node 22.19.0 and npm 10.9.3 on WSL/Linux. Commands ran from the repository root with the nvm Node directory on `PATH`.
+Environment: Node 22.19.0, npm 10.9.3, native PostgreSQL 16.15, WSL/Linux. Database/HTTP socket access was explicitly allowed. No dependency versions or lockfile contents changed.
 
-| Command | Environment | Actual result | Evidence |
-|---|---|---|---|
-| `npm ci --cache .cache/npm --fetch-retries=0 --fetch-timeout=15000` | Node 22.19.0; registry access allowed | Passed; 311 packages installed from lockfile | `package-lock.json` |
-| `npm run lint` | Local | Passed, no warnings | `eslint.config.mjs` |
-| `npm run typecheck` | All three workspaces | Passed | Package TypeScript configurations |
-| `npm test` | Local HTTP sockets allowed | 2 files, 9 tests passed | `apps/api/test/app.test.ts`, `apps/api/test/config.test.ts` |
-| `npm run build` | Shared → API → web | Passed; web JS 143.36 kB / 46.74 kB gzip | Generated, gitignored `dist` directories |
-| Native `initdb`, `pg_ctl`, `createdb` | Separate `.cache/phase0/pg-data`, loopback 54329 | PostgreSQL 16.15 initialized and database created; no existing database touched | Gitignored `.cache/phase0/postgres.log` |
-| `npm run db:check` | Native PostgreSQL 16.15 | Passed, `reachable: 1` | `scripts/check-db.mjs` |
-| `npm run dev` | API 8080, Vite 5173, shared watcher | Started successfully; development proxy verified | Browser checks below |
-| `node scripts/smoke-web.mjs` | Chromium, development URL, 375 and 1280 px | Passed React rendering, keyboard skip link, no overflow, no page exceptions, health, actual DB readiness and JSON API 404s | `scripts/smoke-web.mjs` |
-| `node --env-file=.env apps/api/dist/server.js` + browser smoke | Production environment, port 8081, 375 and 1280 px | Passed the same checks through compiled Express static serving; SIGTERM shut down cleanly | Gitignored `.cache/phase0/desktop.png` and `mobile.png`, visually inspected |
-| `npm audit --omit=dev --json` | Installed lockfile | Zero production vulnerabilities reported | npm audit result |
-| `npm run migrate`, `invariants`, `test:race`, `seed`, `loadtest`, `chaos` | Foundation milestone | Each exited 1 and named its pending phase, as intended | `scripts/pending.mjs` |
-| `git check-ignore` and architecture SHA-256 | Repository | Architecture, sidecar and `.env` ignored; architecture content unchanged | `0f0e98f4202195b5c8883126aa22e651ecf4313418e62d1d113cd3a885039d80` |
+| Command / check | Actual result | Evidence |
+|---|---|---|
+| Native `initdb`, `pg_ctl`, `createdb` | Separate scratch instance on loopback 54330 and `teamforge_test` | Gitignored `.cache/phase1/pg-data`, `postgres.log` |
+| `npm run lint` | Passed | Root ESLint configuration |
+| `npm run typecheck` | Passed for shared, API/tests, web and scripts | Workspace configs and `tsconfig.tools.json` |
+| `npm run build` | Passed; both SQL migrations copied into compiled API | `scripts/copy-migrations.mjs`, generated `dist/db/migrations/` |
+| `npm test` | **6 files, 55 tests passed, no unhandled errors** | `apps/api/test/{app,config,errors}.test.ts`, `apps/api/test/db/*.test.ts` |
+| `npm run migrate` against scratch test DB | Applied `0001_schema.sql`, `0002_triggers.sql` | CLI output |
+| Second `npm run migrate` | Applied `[]`; no changes | CLI output |
+| `npm run invariants` against scratch test DB | B.1–B.8 all returned zero violations | CLI output and populated-fixture integration tests |
+| Compiled production server, local port 8082 | Startup migration replay, readiness, liveness and static HTML passed; SIGTERM passed | Gitignored `.cache/phase1/verify-cli.mjs` |
+| `git diff --check` | Passed | Local diff |
 
-Browser checks used the existing Chromium executable via `CHROMIUM_EXECUTABLE_PATH`; they did not require a browser download. Production verification ran with `NODE_ENV=production`, `APP_ORIGIN=https://teamforge.example`, `HOST=127.0.0.1` and `PORT=8081`. This was local verification, not a deployment.
+The positive CLI check used the empty migrated public schema; integration tests also checked populated valid and deliberately invalid fixtures in temporary schemas. These 55 tests mix unit, HTTP foundation and database cases. They do **not** establish 20 distinct domain API behaviors or the 50-person last-seat race.
 
-The development/production servers and scratch PostgreSQL instance were stopped after verification. On this workspace, the retained, gitignored native cluster can be restarted without Docker:
-
-```sh
-/usr/lib/postgresql/16/bin/pg_ctl -D .cache/phase0/pg-data -l .cache/phase0/postgres.log -o "-h 127.0.0.1 -p 54329 -k $PWD/.cache/phase0/pg-socket" -w start
-nvm use
-npm run dev
-```
-
-This restart command depends on the local verification cluster already existing. Fresh clones should use the README's Compose setup or configure their own PostgreSQL 16 database.
-
-Initial sandboxed npm/network and HTTP/database socket attempts failed and were rerun with permission. Initial checks also found malformed-URL validation escaping the safe config error handler and missing browser globals in ESLint; both were fixed before the passing runs. The production bundle initially included React development code because `.env` set `NODE_ENV=development`; the template now leaves that value to the process environment, and the rebuilt bundle was browser-verified.
+Initial checks found a broken-connection bug: pg emits an error event on a checked-out client as well as rejecting its query. The client guard now handles it and discards that connection; backend termination passes without an unhandled exception. One deadlock run ended in lock/statement timeouts. The isolated test now sets a 50 ms deadlock detector interval while preserving the runtime's 2 s lock / 5 s statement timeouts; the final full suite passed. The test role needs permission to set `deadlock_timeout`, as supplied by Docker/CI.
 
 ## Decisions and deviations
 
-- Stop after Phase 0 at the user's request, even though the local architecture normally asks to continue through phase gates.
-- Keep `ARCHITECTURE.md` unchanged and out of all commits; `.gitignore` also excludes its Windows metadata sidecar.
-- The shell defaults to Node 20; use the installed Node 22.19.0 from nvm for all project commands.
-- Docker is unavailable in this WSL session. Use installed native PostgreSQL 16.15 in a separate scratch cluster for connectivity verification; do not touch another project's database.
-- This milestone implements no authentication or domain mutations. Future commands fail explicitly rather than reporting success for unimplemented work.
-- Shared profile DTOs must never expose password hashes, including `/me`; the architecture's exception wording must not be implemented literally.
-- Zod 4.6.7 and concurrently 9.2.5 were selected after the initial audit identified advisories in the older candidate pins. No high or critical advisories remain. Full audit still reports seven moderate findings through the development-only typescript-eslint/minimatch dependency chain; no forced major override or audit suppression was applied. The selected ESLint 9 release also reports upstream end of support; lint-tool maintenance remains a follow-up.
+- Stop at Phase 1. Do not stage, commit or push; the user will commit.
+- `ARCHITECTURE.md` is unchanged and ignored. SHA-256: `0f0e98f4202195b5c8883126aa22e651ecf4313418e62d1d113cd3a885039d80`.
+- CI uses the required pool size 20 rather than the illustrative older CI snippet's 50.
+- Tests require an explicit `TEST_DATABASE_URL`, loopback host and database name ending in `_test`; query overrides and production mode are refused. Only generated `spec_*` schemas are created/dropped. No global truncation or existing database reset.
+- Publication and diagnostic logging failure cannot replay a committed mutation.
+- Audit completeness and pending-request cancellation still need later domain services. B.7/B.8 detect their absence; these application operations are not implemented yet.
+- Phase 0 dependency audit findings and unavailable Docker environment are unchanged. No dependency upgrade or UI change was needed.
 
 ## Outstanding requirements / external access
 
-- All Phase 1–9 features and evidence remain outstanding, including CI, schema/migrations, authentication, team operations, concurrency, audit, idempotency, SSE, suggestions, complete UI and benchmarks.
-- Docker runtime validation and hosted plan/region/account selection remain unverified. See `DEPLOYMENT.md`.
+- Remote GitHub Actions has not run on these uncommitted changes. Local lint/typecheck/tests/migrations/invariants/build passed; no remote CI success claimed.
+- Docker build/Compose execution remains unverified because Docker is unavailable. Native PostgreSQL verification is complete.
+- Authentication, profiles, registration, domain endpoints, idempotency service, mutation audit production, race suite, SSE, suggestions, complete UI, seed, benchmarks and deployment remain for Phases 2–9.
+- No new deployment or performance result claimed.
+
+## Local test database restart
+
+The verification server and scratch database are stopped at handoff. The retained native test cluster is gitignored, and its credentials match `TEST_DATABASE_URL` in `.env.example`. On this workspace:
+
+```sh
+/usr/lib/postgresql/16/bin/pg_ctl -D .cache/phase1/pg-data -l .cache/phase1/postgres.log -o "-h 127.0.0.1 -p 54330 -k $PWD/.cache/phase1/pg-socket" -w start
+nvm use
+npm test
+```
+
+Fresh clones should use the README's Compose test service.
 
 ## Next executable step
 
-- Resume with Phase 1 only after the user's next instruction: implement ordered schema/trigger migrations, the transaction runner and error mapping, real PostgreSQL invariant tests and CI. Keep runtime pool size 20 for the required tests. Domain features and authentication remain for later phases.
+After the user's next instruction, begin Phase 2: auth/session configuration, password hashing, signup/login/logout, profile/registration, Origin validation/rate limiting and the minimal authenticated browser flow. Preserve applied migrations; use a new numbered migration for later schema changes.
+
+Suggested commit message: `feat: add PostgreSQL schema and transaction foundation`

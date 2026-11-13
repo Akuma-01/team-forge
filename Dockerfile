@@ -9,6 +9,7 @@ COPY tsconfig.base.json ./
 COPY packages/shared ./packages/shared
 COPY apps/api ./apps/api
 COPY apps/web ./apps/web
+COPY scripts/copy-migrations.mjs ./scripts/copy-migrations.mjs
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22.19.0-bookworm-slim AS runtime

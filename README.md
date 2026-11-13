@@ -2,7 +2,7 @@
 
 Team formation for hackathons, built with Node 22, Express 5, PostgreSQL 16, React 18 and TypeScript.
 
-The first milestone establishes the project foundation: npm workspaces, shared contracts, a React shell, API liveness/readiness, development proxy and production static serving. Authentication, team formation, concurrency guarantees and deployment are **not implemented yet**. Progress and the next milestone are recorded in [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md).
+The project foundation and database layer are implemented: npm workspaces, a React shell, API health checks, transactional migrations, PostgreSQL membership safeguards, transaction/retry handling and invariant checks. Authentication, team formation endpoints, the headline concurrency race and deployment are **not implemented yet**. Progress and the next milestone are recorded in [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md).
 
 ## Run locally
 
@@ -14,6 +14,7 @@ npm ci
 cp .env.example .env
 docker compose up -d db
 npm run db:check
+npm run migrate
 npm run dev
 ```
 
@@ -25,7 +26,7 @@ The database binds only to loopback on port **54329**. Local example credentials
 docker compose --profile test up -d db-test
 ```
 
-The test database has its own port **54330**, database name and temporary storage. Future database suites must use `TEST_DATABASE_URL`, never a live database. The current foundation tests do not mutate a database.
+The test database has its own port **54330**, database name and temporary storage. `npm test` requires `TEST_DATABASE_URL` pointing to a loopback PostgreSQL database whose name ends in `_test`. It refuses production mode and URL query overrides. Each database suite creates/migrates its own temporary schema and drops that schema afterward; existing schemas and data are not reset. The deadlock test uses the supplied test role's permission to set `deadlock_timeout` locally.
 
 ## Checks
 
@@ -37,7 +38,11 @@ npm run build
 npm run db:check
 ```
 
-`npm test` currently covers configuration and HTTP boundaries. It does not yet prove team invariants or concurrency. Migrations, invariant checks, race tests, seeding, load testing and chaos testing currently exit nonzero with the phase that will implement them.
+`npm test` runs configuration/HTTP tests and real PostgreSQL migration, constraint and transaction tests. It verifies deferred leadership/count checks, overcapacity rejection, rollback, bounded retries, an actual deadlock, timeout handling and post-commit hooks. It does not yet prove the domain API's 50-person last-seat race. Race tests, seeding, load testing and chaos testing still exit nonzero with their planned phase.
+
+`npm run migrate` prefers `DATABASE_URL_DIRECT`, applies all pending migrations in one advisory-locked transaction, and verifies checksums on later runs. Applied SQL files must not be edited; add another numbered migration. Server startup also runs migrations and stops on failure. The API build copies SQL alongside the compiled runner.
+
+`npm run invariants` checks the configured `DATABASE_URL` without changing data; it exits nonzero if any check fails. To scope it: `npm run invariants -- <hackathon-uuid>`. The CI workflow runs the full local gate with PostgreSQL and a pool of 20; its remote execution remains pending until the changes are pushed.
 
 To check the React shell in Chromium while `npm run dev` is running:
 
@@ -71,4 +76,4 @@ docs/             Build status and deployment prerequisites
 
 Shared code compiles before its consumers and exports JavaScript from `dist`; browser code must not import API or database modules. Password hashes never belong in response DTOs, including the current user's profile.
 
-`ARCHITECTURE.md` is a local planning reference excluded from Git at the owner's request. The first milestone is a deliberate review/commit boundary; Phase 1 follows separately.
+`ARCHITECTURE.md` is a local planning reference excluded from Git at the owner's request. Phase 1 is the current review/commit boundary; authentication follows in Phase 2.

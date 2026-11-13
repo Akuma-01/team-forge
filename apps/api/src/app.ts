@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import express from 'express';
 import helmet from 'helmet';
 import type { ApiError, ErrorCode, Health } from '@teamforge/shared';
+import { AppError } from './db/errors.js';
 
 type AppOptions = {
   checkDatabase: () => Promise<void>;
@@ -72,6 +73,12 @@ export function createApp(options: AppOptions) {
 
   app.use((_req, res) => sendError(res, 404, 'NOT_FOUND', 'Resource not found.'));
   const errorHandler: express.ErrorRequestHandler = (error: unknown, _req, res, _next) => {
+    if (res.headersSent) { _next(error); return; }
+    if (error instanceof AppError) {
+      if (error.retryAfter !== undefined) res.setHeader('Retry-After', String(error.retryAfter));
+      sendError(res, error.status, error.code, error.message);
+      return;
+    }
     const type = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
     if (type === 'entity.parse.failed') {
       sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be valid JSON.');
