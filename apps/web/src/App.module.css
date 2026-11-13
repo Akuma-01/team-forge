@@ -1,0 +1,30 @@
+.shell { max-width: 1280px; margin: 0 auto; padding: 0 64px; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 108px; border-bottom: 1px solid #d8dace; }
+.brand { display: inline-flex; align-items: center; min-height: 44px; font-weight: 750; font-size: 23px; letter-spacing: -1px; text-decoration: none; }
+.mark { display: grid; place-items: center; width: 36px; height: 36px; margin-right: 10px; border-radius: 10px; color: #f5f3ec; background: #243e34; font-size: 22px; }
+.brandDot { color: #ab4b27; }
+.headerNote { font-size: 13px; color: #59675e; }
+.main { padding: 100px 0 72px; }
+.eyebrow { font-size: 11px; font-weight: 750; letter-spacing: 2px; color: #9b4222; margin: 0 0 28px; }
+.main h1 { font-size: clamp(42px, 5.5vw, 72px); letter-spacing: -3px; line-height: 1.08; font-weight: 650; margin: 0; }
+.main h1 span { color: #617667; }
+.intro { max-width: 540px; color: #536158; font-size: 18px; line-height: 1.7; margin: 28px 0; }
+.notice { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.notice p { margin: 0; }
+.noticeDot { width: 8px; height: 8px; border-radius: 50%; background: #a74c29; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); list-style: none; margin: 84px 0 0; padding: 32px 0 0; border-top: 1px solid #d8dace; gap: 40px; }
+.steps li > span { font-size: 12px; color: #7b5b37; }
+.steps h2 { font-size: 18px; margin: 16px 0 10px; font-weight: 600; }
+.steps p { font-size: 14px; line-height: 1.6; color: #536158; margin: 0; max-width: 260px; }
+.footer { display: flex; justify-content: space-between; gap: 24px; padding: 24px 0 32px; border-top: 1px solid #d8dace; font-size: 12px; color: #536158; }
+@media (max-width: 700px) {
+  .shell { padding: 0 24px; }
+  .header { min-height: 86px; }
+  .headerNote { display: none; }
+  .main { padding: 64px 0 48px; }
+  .main h1 { letter-spacing: -1.8px; }
+  .intro { font-size: 16px; }
+  .steps { grid-template-columns: 1fr; gap: 28px; margin-top: 56px; }
+  .steps h2 { margin-top: 10px; }
+  .steps p { max-width: none; }
+}

@@ -1,0 +1,18 @@
+node_modules/
+dist/
+coverage/
+.cache/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+loadtest/tokens.json
+loadtest/summary.json
+test-results/
+playwright-report/
+.DS_Store
+*:Zone.Identifier
+
+# Local design reference; excluded at the owner's request.
+/ARCHITECTURE.md

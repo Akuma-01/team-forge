@@ -1,0 +1,12 @@
+.git
+node_modules
+**/node_modules
+**/dist
+.cache
+.env
+.env.*
+ARCHITECTURE.md
+*:Zone.Identifier
+coverage
+test-results
+loadtest/tokens.json
