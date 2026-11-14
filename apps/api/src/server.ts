@@ -24,6 +24,7 @@ async function main() {
   const pool = createPool(config);
   const app = createApp({
     production,
+    identity: { pool, config },
     ...(production ? { webDirectory } : {}),
     checkDatabase: async () => { await pool.query('SELECT 1'); },
   });

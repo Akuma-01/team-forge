@@ -15,6 +15,7 @@ export const apiErrorSchema = z.object({
     code: errorCodeSchema,
     message: z.string(),
     requestId: z.string().uuid(),
+    details: z.array(z.object({ field: z.string(), message: z.string() }).strict()).optional(),
   }).strict(),
 }).strict();
 export type ApiError = z.infer<typeof apiErrorSchema>;
@@ -57,4 +58,34 @@ export type TeamDetail = BoardTeam & {
   inviteCode?: string;
   inviteExpiresAt?: string;
   pendingRequestCount?: number;
+};
+
+const noControls = (value: string) => !/\p{Cc}/u.test(value);
+const safeText = z.string().refine(noControls, 'Control characters are not allowed.');
+const displayNameSchema = safeText.transform((value) => value.trim()).pipe(z.string().min(1).max(60));
+const emailSchema = safeText.transform((value) => value.trim().toLowerCase()).pipe(z.string().max(254).email());
+const passwordSchema = z.string().min(10).max(128).refine(noControls, 'Control characters are not allowed.');
+const skillsSchema = z.array(skillSchema).max(12).refine((value) => new Set(value).size === value.length, 'Choose each skill once.');
+const offsetSchema = z.number().int().min(-720).max(840);
+
+export const signupSchema = z.object({ email: emailSchema, password: passwordSchema, displayName: displayNameSchema }).strict();
+export const loginSchema = z.object({ email: emailSchema, password: passwordSchema }).strict();
+export const profilePatchSchema = z.object({
+  displayName: displayNameSchema.optional(), skills: skillsSchema.optional(), utcOffsetMin: offsetSchema.optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, 'Choose at least one field to update.');
+export const invitePreferenceSchema = z.object({ openToInvites: z.boolean() }).strict();
+export const hackathonParamsSchema = z.object({ hid: z.string().uuid() }).strict();
+export const emptyObjectSchema = z.object({}).strict();
+export type SignupInput = z.infer<typeof signupSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
+export type ProfilePatch = z.infer<typeof profilePatchSchema>;
+
+export type Registration = { hackathonId: string; openToInvites: boolean; registeredAt: string };
+export type Profile = {
+  id: string; email: string; displayName: string; skills: Skill[]; utcOffsetMin: number;
+  registrations: Registration[];
+};
+export type Hackathon = {
+  id: string; name: string; minTeamSize: number; maxTeamSize: number;
+  registration: Registration | null;
 };

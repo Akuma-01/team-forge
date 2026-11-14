@@ -10,9 +10,9 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    const response = await page.goto(baseUrl);
+    const response = await page.goto(new URL('/login', baseUrl).href);
     assert.equal(response.status(), 200);
-    await page.getByRole('heading', { level: 1, name: /Find your people/ }).waitFor();
+    await page.getByRole('heading', { level: 1, name: 'Welcome back.' }).waitFor();
     await page.keyboard.press('Tab');
     assert.equal(await page.locator(':focus').textContent(), 'Skip to content');
     await page.keyboard.press('Enter');
@@ -25,8 +25,8 @@ try {
     assert.equal(ready.status(), 200);
     assert.deepEqual(await ready.json(), { status: 'ok' });
     const miss = await page.request.get(new URL('/api/not-implemented', baseUrl).href);
-    assert.equal(miss.status(), 404);
-    assert.equal((await miss.json()).error.code, 'NOT_FOUND');
+    assert.equal(miss.status(), 401);
+    assert.equal((await miss.json()).error.code, 'UNAUTHENTICATED');
     assert.deepEqual(errors, []);
     console.info(`Browser smoke passed at ${width}px: React, keyboard, layout, health, database readiness and API routing.`);
     await page.close();

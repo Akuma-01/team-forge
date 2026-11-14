@@ -1,4 +1,12 @@
 import { z } from 'zod';
+import { isIP } from 'node:net';
+
+const proxyAddress = z.string().refine((value) => {
+  const parts = value.split('/');
+  const [address, bits] = parts;
+  const version = isIP(address ?? '');
+  return parts.length <= 2 && version !== 0 && (bits === undefined || (/^\d+$/.test(bits) && Number(bits) <= (version === 4 ? 32 : 128)));
+}, 'Use explicit trusted proxy IPs or CIDRs.');
 
 const databaseUrl = z.string().url().refine(
   (value) => ['postgres:', 'postgresql:'].includes(URL.parse(value)?.protocol ?? ''),
@@ -13,6 +21,11 @@ const configSchema = z.object({
   DATABASE_URL: databaseUrl,
   DATABASE_URL_DIRECT: databaseUrl.optional(),
   PG_POOL_MAX: z.coerce.number().int().min(1).max(100).default(20),
+  JWT_SECRET: z.string().min(32).refine((value) => !value.startsWith('replace-') && Buffer.byteLength(value) >= 32),
+  TRUSTED_PROXY_CIDRS: z.preprocess(
+    (value) => typeof value === 'string' ? value.split(',').map((item) => item.trim()).filter(Boolean) : value ?? [],
+    z.array(proxyAddress),
+  ),
 }).superRefine((config, ctx) => {
   const origin = URL.parse(config.APP_ORIGIN);
   if (!origin) return;

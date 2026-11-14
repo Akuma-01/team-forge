@@ -4,21 +4,26 @@ import express from 'express';
 import helmet from 'helmet';
 import type { ApiError, ErrorCode, Health } from '@teamforge/shared';
 import { AppError } from './db/errors.js';
+import { identityRouter } from './modules/auth/routes.js';
+import type { IdentityOptions } from './modules/auth/routes.js';
+import { requireOrigin } from './middleware/origin.js';
 
 type AppOptions = {
   checkDatabase: () => Promise<void>;
   production?: boolean;
   webDirectory?: string;
+  identity?: IdentityOptions;
 };
 
-function sendError(res: express.Response, status: number, code: ErrorCode, message: string) {
-  const body: ApiError = { error: { code, message, requestId: String(res.getHeader('X-Request-Id')) } };
+function sendError(res: express.Response, status: number, code: ErrorCode, message: string, details?: AppError['details']) {
+  const body: ApiError = { error: { code, message, requestId: String(res.getHeader('X-Request-Id')), ...(details ? { details } : {}) } };
   res.status(status).json(body);
 }
 
 export function createApp(options: AppOptions) {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', options.identity?.config.TRUSTED_PROXY_CIDRS.length ? options.identity.config.TRUSTED_PROXY_CIDRS : false);
   app.use((_req, res, next) => {
     res.setHeader('X-Request-Id', randomUUID());
     next();
@@ -35,6 +40,7 @@ export function createApp(options: AppOptions) {
     },
     strictTransportSecurity: options.production ?? false,
   }));
+  if (options.identity) app.use('/api', requireOrigin(options.identity.config.APP_ORIGIN));
   app.use(express.json({ limit: '10kb', strict: true }));
 
   app.get('/health', (_req, res) => {
@@ -53,6 +59,7 @@ export function createApp(options: AppOptions) {
   });
 
   // Future API routes are mounted above this boundary. Never send SPA HTML for an API miss.
+  if (options.identity) app.use('/api', identityRouter(options.identity));
   app.use('/api', (_req, res) => sendError(res, 404, 'NOT_FOUND', 'Resource not found.'));
   app.use(['/health', '/ready', '/metrics'], (_req, res) => {
     sendError(res, 404, 'NOT_FOUND', 'Resource not found.');
@@ -76,7 +83,7 @@ export function createApp(options: AppOptions) {
     if (res.headersSent) { _next(error); return; }
     if (error instanceof AppError) {
       if (error.retryAfter !== undefined) res.setHeader('Retry-After', String(error.retryAfter));
-      sendError(res, error.status, error.code, error.message);
+      sendError(res, error.status, error.code, error.message, error.details);
       return;
     }
     const type = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
