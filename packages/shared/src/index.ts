@@ -89,3 +89,22 @@ export type Hackathon = {
   id: string; name: string; minTeamSize: number; maxTeamSize: number;
   registration: Registration | null;
 };
+
+export const teamParamsSchema = hackathonParamsSchema.extend({ tid: z.string().uuid() }).strict();
+export const teamCreateSchema = z.object({
+  name: safeText.transform((value) => value.trim()).pipe(z.string().min(2).max(60)),
+  description: safeText.transform((value) => value.trim()).pipe(z.string().max(500)).default(''),
+  lookingFor: z.array(skillSchema).max(8).refine((value) => new Set(value).size === value.length, 'Choose each skill once.').default([]),
+  isOpen: z.boolean().default(true),
+}).strict();
+export const joinCodeSchema = z.object({
+  code: safeText.transform((value) => value.trim().toUpperCase()).pipe(z.string().regex(/^[0-9A-HJKMNP-TV-Z]{10}$/, 'Use a 10-character invite code.')),
+}).strict();
+export type TeamCreate = z.infer<typeof teamCreateSchema>;
+export type MyTeam = {
+  team: TeamDetail | null;
+  pendingRequests: { id: string; teamId: string; teamName: string; message: string; createdAt: string }[];
+};
+export type CreateTeamResult = { team: TeamDetail };
+export type JoinTeamResult = { team: TeamDetail; alreadyMember: boolean };
+export type LeaveTeamResult = { left: true; teamDeleted: boolean };

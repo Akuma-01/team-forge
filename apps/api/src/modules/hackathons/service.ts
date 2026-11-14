@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { Hackathon, Registration } from '@teamforge/shared';
 import { AppError } from '../../db/errors.js';
-import { withTx } from '../../db/tx.js';
+import type { Tx } from '../../db/tx.js';
 
 type Row = {
   id: string; name: string; min_team_size: number; max_team_size: number;
@@ -26,23 +26,19 @@ export async function getHackathon(pool: Pool, userId: string, hackathonId: stri
   return dto(row);
 }
 
-export async function register(pool: Pool, userId: string, hackathonId: string): Promise<Registration> {
-  return withTx(pool, async (tx) => {
-    if ((await tx.q('SELECT 1 FROM hackathons WHERE id = $1 FOR KEY SHARE', [hackathonId])).rowCount === 0) {
-      throw new AppError('NOT_FOUND', 404, 'Hackathon not found.');
-    }
-    await tx.q('INSERT INTO hackathon_participants (hackathon_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [hackathonId, userId]);
-    const { rows: [row] } = await tx.q<{ open_to_invites: boolean; registered_at: Date }>(
-      'SELECT open_to_invites, registered_at FROM hackathon_participants WHERE hackathon_id = $1 AND user_id = $2', [hackathonId, userId]);
-    return { hackathonId, openToInvites: row!.open_to_invites, registeredAt: row!.registered_at.toISOString() };
-  });
+export async function register(tx: Tx, userId: string, hackathonId: string): Promise<Registration> {
+  if ((await tx.q('SELECT 1 FROM hackathons WHERE id = $1 FOR KEY SHARE', [hackathonId])).rowCount === 0) {
+    throw new AppError('NOT_FOUND', 404, 'Hackathon not found.');
+  }
+  await tx.q('INSERT INTO hackathon_participants (hackathon_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [hackathonId, userId]);
+  const { rows: [row] } = await tx.q<{ open_to_invites: boolean; registered_at: Date }>(
+    'SELECT open_to_invites, registered_at FROM hackathon_participants WHERE hackathon_id = $1 AND user_id = $2', [hackathonId, userId]);
+  return { hackathonId, openToInvites: row!.open_to_invites, registeredAt: row!.registered_at.toISOString() };
 }
 
-export async function updatePreference(pool: Pool, userId: string, hackathonId: string, openToInvites: boolean) {
-  return withTx(pool, async (tx) => {
-    const { rows: [row] } = await tx.q<{ registered_at: Date }>(`UPDATE hackathon_participants SET open_to_invites = $3
-      WHERE hackathon_id = $1 AND user_id = $2 RETURNING registered_at`, [hackathonId, userId, openToInvites]);
-    if (!row) throw new AppError('NOT_REGISTERED', 403, 'Register for this hackathon first.');
-    return { hackathonId, openToInvites, registeredAt: row.registered_at.toISOString() } satisfies Registration;
-  });
+export async function updatePreference(tx: Tx, userId: string, hackathonId: string, openToInvites: boolean) {
+  const { rows: [row] } = await tx.q<{ registered_at: Date }>(`UPDATE hackathon_participants SET open_to_invites = $3
+    WHERE hackathon_id = $1 AND user_id = $2 RETURNING registered_at`, [hackathonId, userId, openToInvites]);
+  if (!row) throw new AppError('NOT_REGISTERED', 403, 'Register for this hackathon first.');
+  return { hackathonId, openToInvites, registeredAt: row.registered_at.toISOString() } satisfies Registration;
 }

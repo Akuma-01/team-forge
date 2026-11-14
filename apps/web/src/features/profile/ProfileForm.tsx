@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { skills, profilePatchSchema } from '@teamforge/shared';
 import type { Profile, ProfilePatch, Skill } from '@teamforge/shared';
-import { api, ApiFailure } from '../../api/client';
+import { ApiFailure } from '../../api/client';
+import { useIntentRequest } from '../../api/useIntentRequest';
 import { queryClient, sessionKey, clearSession } from '../../api/session';
 import { Field, FormError, issuesToErrors, failureToErrors, focusFirstError } from '../../components/forms';
 import type { FieldErrors } from '../../components/forms';
@@ -14,8 +15,9 @@ export function ProfileForm({ user }: { user: Profile }) {
   const [chosenSkills, setChosenSkills] = useState<Skill[]>(user.skills);
   const [utcOffsetMin, setOffset] = useState(user.utcOffsetMin);
   const [errors, setErrors] = useState<FieldErrors>({});
+  const send = useIntentRequest<Profile>(user.id);
   const mutation = useMutation({
-    mutationFn: (body: ProfilePatch) => api<Profile>('/me', { method: 'PATCH', body }),
+    mutationFn: (body: ProfilePatch) => send('/me', 'PATCH', body),
     onSuccess: (profile) => {
       // A late mutation from a previous account must not restore its cached profile.
       if (queryClient.getQueryData<Profile | null>(sessionKey)?.id === user.id) queryClient.setQueryData(sessionKey, profile);

@@ -13,9 +13,10 @@ export function createSessions(config: Pick<Config, 'JWT_SECRET' | 'NODE_ENV'>) 
   const cookieOptions = { httpOnly: true, secure: config.NODE_ENV === 'production', sameSite: 'lax' as const, path: '/' };
   return {
     issue(userId: string) {
+      const issuedAt = Math.floor(Date.now() / 1000);
       return new SignJWT({}).setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
         .setSubject(userId).setIssuer(issuer).setAudience(audience)
-        .setIssuedAt().setExpirationTime('7d').sign(key);
+        .setIssuedAt(issuedAt).setExpirationTime(issuedAt + lifetimeSeconds).sign(key);
     },
     async read(req: Request) {
       try {

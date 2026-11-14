@@ -56,6 +56,29 @@
 .nav { display: flex; align-items: center; gap: 18px; font-size: 14px; }
 .nav a { display: inline-flex; align-items: center; min-height: 44px; text-underline-offset: 4px; }
 .textButton { min-height: 44px; padding: 0; background: transparent; color: #536158; border: 0; cursor: pointer; font-size: 14px; }
+.teamForms { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); gap: 32px; align-items: start; margin-top: 28px; }
+.teamCard { max-width: 850px; padding: 32px; background: var(--color-surface); border: 1px solid #dadcd1; border-radius: 16px; }
+.teamHeading { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
+.teamHeading .eyebrow { margin-bottom: 14px; }
+.teamHeading h2 { font-size: 32px; letter-spacing: -1px; margin: 0; overflow-wrap: anywhere; }
+.teamReadiness, .leaderBadge { padding: 8px 12px; border-radius: 20px; background: #e6eddd; color: #294b3a; font-size: 12px; flex-shrink: 0; }
+.members { list-style: none; margin: 28px 0; padding: 0; }
+.members li { display: flex; align-items: center; gap: 14px; padding: 18px 0; border-top: 1px solid #d8dace; }
+.members li > div { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.members p { margin: 6px 0 0; }
+.avatar { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 12px; background: #ebece1; font-weight: 700; }
+.invitePanel { padding: 24px; margin: 0 0 28px; background: #f0f2e9; border-radius: 12px; }
+.invitePanel h3 { margin: 0; font-size: 20px; }
+.invitePanel .field { max-width: 320px; }
+.invitePanel input { font-family: ui-monospace, monospace; letter-spacing: 3px; font-size: 22px; }
+.dangerButton { min-height: 46px; padding: 12px 20px; border: 1px solid #ab4b27; color: #8c3820; background: transparent; border-radius: 7px; cursor: pointer; font-size: 14px; font-weight: 650; }
+.dangerButton:hover:not(:disabled) { background: #fbe9e2; }
+.dialog { width: min(480px, calc(100% - 32px)); padding: 28px; border: 1px solid #cbd1c3; border-radius: 16px; color: var(--color-ink); background: var(--color-surface); }
+.dialog::backdrop { background: #15291f80; }
+.dialog h2 { font-size: 24px; margin: 0 0 16px; overflow-wrap: anywhere; }
+.dialog p { line-height: 1.65; }
+.dialog .formActions { margin-top: 24px; }
+.pendingRequests { margin-top: 32px; }
 @media (max-width: 1000px) {
   .shell { padding: 0 36px; }
   .authLayout { gap: 36px; grid-template-columns: 1fr 390px; }
@@ -63,7 +86,7 @@
 }
 @media (max-width: 700px) {
   .shell { padding: 0 20px; }
-  .header { min-height: 86px; }
+  .header { min-height: 86px; flex-wrap: wrap; gap: 8px 16px; padding: 18px 0; }
   .headerNote { display: none; }
   .main { padding: 32px 0 48px; }
   .main h1 { letter-spacing: -1.8px; }
@@ -82,4 +105,11 @@
   .mark { width: 30px; height: 30px; margin-right: 7px; }
   .footer { font-size: 11px; gap: 12px; }
   .pageTitle { margin-bottom: 32px; }
+  .teamForms { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .teamCard { padding: 24px 20px; }
+  .teamHeading { flex-direction: column; gap: 16px; }
+  .teamHeading h2 { font-size: 28px; }
+  .invitePanel { padding: 20px 16px; }
+  .members li { gap: 10px; }
+  .leaderBadge { font-size: 11px; padding: 6px 8px; }
 }

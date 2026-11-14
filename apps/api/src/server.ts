@@ -5,6 +5,7 @@ import { readConfig } from './config.js';
 import { createPool } from './db/pool.js';
 import { migrate } from './db/migrate.js';
 import { logDatabaseError } from './db/errors.js';
+import { startIdempotencyCleanup } from './db/idempotency.js';
 
 async function main() {
   const config = readConfig();
@@ -31,9 +32,10 @@ async function main() {
   const server = app.listen(config.PORT, config.HOST, () => {
     console.info(JSON.stringify({ event: 'server.started', host: config.HOST, port: config.PORT }));
   });
+  const stopCleanup = startIdempotencyCleanup(pool);
   server.on('error', (error: NodeJS.ErrnoException) => {
     console.error(JSON.stringify({ event: 'server.failed', code: error.code }));
-    void pool.end().finally(() => { process.exitCode = 1; });
+    void stopCleanup().then(() => pool.end()).finally(() => { process.exitCode = 1; });
   });
 
   let closing = false;
@@ -43,7 +45,7 @@ async function main() {
     const deadline = setTimeout(() => process.exit(1), 10_000);
     deadline.unref();
     server.close(() => {
-      void pool.end().then(() => {
+      void stopCleanup().then(() => pool.end()).then(() => {
         clearTimeout(deadline);
         console.info(JSON.stringify({ event: 'server.stopped' }));
       }).catch(() => { process.exitCode = 1; });

@@ -4,6 +4,11 @@ import { readConfig } from '../src/config.js';
 const base = { DATABASE_URL: 'postgres://local:local@127.0.0.1:54329/teamforge', JWT_SECRET: 'test-only-secret-0123456789abcdef0123456789' };
 
 describe('startup configuration', () => {
+  it('defaults invite expiry to 48 hours and rejects unbounded or non-positive lifetimes', () => {
+    expect(readConfig(base).INVITE_TTL_HOURS).toBe(48);
+    expect(readConfig({ ...base, INVITE_TTL_HOURS: '24' }).INVITE_TTL_HOURS).toBe(24);
+    for (const value of ['0', '-1', '721', '1.5', 'invalid']) expect(() => readConfig({ ...base, INVITE_TTL_HOURS: value })).toThrow('INVITE_TTL_HOURS');
+  });
   it('requires a non-placeholder JWT secret without echoing it', () => {
     for (const secret of ['', 'short', 'replace-with-a-strong-secret-of-32-bytes']) {
       expect(() => readConfig({ ...base, JWT_SECRET: secret })).toThrow('Invalid configuration: JWT_SECRET');

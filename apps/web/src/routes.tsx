@@ -6,6 +6,7 @@ import { clearSession, queryClient, useSession } from './api/session';
 import { AuthPage } from './features/auth/AuthPage';
 import { ProfileForm } from './features/profile/ProfileForm';
 import { Hackathons } from './features/hackathons/Hackathons';
+import { TeamPage } from './features/team/TeamPage';
 import styles from './App.module.css';
 
 function Frame() {
@@ -36,7 +37,7 @@ function Frame() {
     <a className="skip-link" href="#main">Skip to content</a>
     <header className={styles.header}>
       <Link className={styles.brand} to="/" aria-label="TeamForge home"><span className={styles.mark} aria-hidden="true">T</span>TeamForge<span className={styles.brandDot}>.</span></Link>
-      {session.data ? <nav className={styles.nav} aria-label="Account"><Link to="/profile">Your profile</Link><button className={styles.textButton} disabled={signOut.isPending} onClick={() => signOut.mutate()}>Sign out</button></nav> : <span className={styles.headerNote}>Good things are built together.</span>}
+      {session.data ? <nav className={styles.nav} aria-label="Account"><Link to="/me">My team</Link><Link to="/profile">Your profile</Link><button className={styles.textButton} disabled={signOut.isPending} onClick={() => signOut.mutate()}>Sign out</button></nav> : <span className={styles.headerNote}>Good things are built together.</span>}
     </header>
     <main id="main" tabIndex={-1} className={styles.main}>
       {signOut.isError && <p className={styles.error} role="alert">{signOut.error.message}</p>}<Outlet />
@@ -64,13 +65,13 @@ function Workspace() {
   if (!user) return null;
   return <>
     <div className={styles.pageTitle}><p className={styles.eyebrow}>YOUR NEXT CHAPTER</p><h1>Hello, {user.displayName}.</h1><p className={styles.intro}>Your next great collaboration starts here.</p><Link to="/profile">Edit your profile →</Link></div>
-    <Hackathons user={user} /><p className={styles.notice}>Team creation and joining are coming next.</p>
+    <Hackathons user={user} teamLinks />
   </>;
 }
 export function AppRoutes() {
   return <Routes><Route element={<Frame />}>
     <Route path="/login" element={<AuthPage key="login" mode="login" />} /><Route path="/signup" element={<AuthPage key="signup" mode="signup" />} />
-    <Route element={<Protected />}><Route index element={<Workspace />} /><Route path="/onboarding" element={<ProfilePage onboarding />} /><Route path="/profile" element={<ProfilePage />} /></Route>
+    <Route element={<Protected />}><Route index element={<Workspace />} /><Route path="/onboarding" element={<ProfilePage onboarding />} /><Route path="/profile" element={<ProfilePage />} /><Route path="/me" element={<TeamPage />} /><Route path="/teams/:id" element={<TeamPage />} /></Route>
     <Route path="*" element={<><h1>Page not found</h1><p><Link to="/">Back to TeamForge</Link></p></>} />
   </Route></Routes>;
 }

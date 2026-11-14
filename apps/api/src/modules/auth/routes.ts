@@ -13,10 +13,13 @@ import { createPasswords } from './password.js';
 import { createSessions } from './session.js';
 import { signup, profile, updateProfile } from './service.js';
 import { listHackathons, getHackathon, register, updatePreference } from '../hackathons/service.js';
+import { domainMutation } from '../../db/idempotency.js';
+import { teamRouter } from '../teams/routes.js';
+import type { TeamOptions } from '../teams/routes.js';
 
-export type IdentityOptions = { pool: Pool; config: Config; limiter?: RateLimiter };
+export type IdentityOptions = { pool: Pool; config: Config; limiter?: RateLimiter; publishTeamChange?: TeamOptions['publishTeamChange'] };
 
-export function identityRouter({ pool, config, limiter = new SlidingWindowLimiter() }: IdentityOptions) {
+export function identityRouter({ pool, config, limiter = new SlidingWindowLimiter(), publishTeamChange }: IdentityOptions) {
   const router = Router();
   const passwords = createPasswords();
   const sessions = createSessions(config);
@@ -70,9 +73,10 @@ export function identityRouter({ pool, config, limiter = new SlidingWindowLimite
     sessions.clear(res);
     res.status(204).end();
   });
-  router.get('/me', async (_req, res) => res.json(await profile(pool, String(res.locals.userId))));
+  router.get('/me', async (_req, res) => res.json(await profile({ q: (sql, params) => pool.query(sql, params) }, String(res.locals.userId))));
   router.patch('/me', async (req, res) => {
-    res.json(await updateProfile(pool, String(res.locals.userId), validate(profilePatchSchema, req.body)));
+    const input = validate(profilePatchSchema, req.body);
+    await domainMutation(pool, req, res, async (tx) => ({ status: 200, body: await updateProfile(tx, String(res.locals.userId), input) }));
   });
   router.get('/hackathons', async (_req, res) => res.json(await listHackathons(pool, String(res.locals.userId))));
   router.get('/hackathons/:hid', async (req, res) => {
@@ -82,12 +86,13 @@ export function identityRouter({ pool, config, limiter = new SlidingWindowLimite
   router.post('/hackathons/:hid/register', async (req, res) => {
     const { hid } = validate(hackathonParamsSchema, req.params);
     validate(emptyObjectSchema, req.body ?? {});
-    res.json(await register(pool, String(res.locals.userId), hid));
+    await domainMutation(pool, req, res, async (tx) => ({ status: 200, body: await register(tx, String(res.locals.userId), hid) }));
   });
   router.patch('/hackathons/:hid/me', async (req, res) => {
     const { hid } = validate(hackathonParamsSchema, req.params);
     const { openToInvites } = validate(invitePreferenceSchema, req.body);
-    res.json(await updatePreference(pool, String(res.locals.userId), hid, openToInvites));
+    await domainMutation(pool, req, res, async (tx) => ({ status: 200, body: await updatePreference(tx, String(res.locals.userId), hid, openToInvites) }));
   });
+  router.use(teamRouter({ pool, config, limiter, publishTeamChange }));
   return router;
 }

@@ -75,7 +75,7 @@ export async function withTx<T>(pool: Pool, work: (tx: Tx) => Promise<T>, option
         continue;
       }
       const mapped = mapPgError(failure);
-      if (mapped.status === 500) report('database.transaction.failed', failure);
+      if (mapped.status >= 500) report('database.transaction.failed', failure);
       throw mapped;
     }
     for (const hook of hooks) {

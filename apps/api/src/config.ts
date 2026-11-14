@@ -21,6 +21,7 @@ const configSchema = z.object({
   DATABASE_URL: databaseUrl,
   DATABASE_URL_DIRECT: databaseUrl.optional(),
   PG_POOL_MAX: z.coerce.number().int().min(1).max(100).default(20),
+  INVITE_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(48),
   JWT_SECRET: z.string().min(32).refine((value) => !value.startsWith('replace-') && Buffer.byteLength(value) >= 32),
   TRUSTED_PROXY_CIDRS: z.preprocess(
     (value) => typeof value === 'string' ? value.split(',').map((item) => item.trim()).filter(Boolean) : value ?? [],
