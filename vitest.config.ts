@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['apps/api/test/**/*.test.ts', 'packages/shared/test/**/*.test.ts'],
+    exclude: ['apps/api/test/race/**'],
     testTimeout: 10_000,
     hookTimeout: 10_000,
   },

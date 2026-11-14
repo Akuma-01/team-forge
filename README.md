@@ -2,7 +2,7 @@
 
 Team formation for hackathons, built with Node 22, Express 5, PostgreSQL 16, React 18 and TypeScript.
 
-The foundation, identity flow and core team lifecycle are implemented. Create an account, edit your profile, register for a hackathon, create a team, share an invite, join, and leave. Mutations use transactions, idempotency keys and audit records; leadership transfers automatically when needed. The headline concurrency race, applications/leader controls, discovery/SSE and deployment are **not implemented yet**. Progress is recorded in [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md).
+The foundation, identity flow, core team lifecycle and concurrency suite are implemented. Create an account, edit your profile, register for a hackathon, create a team, share an invite, join, and leave. Mutations use transactions, idempotency keys and audit records; leadership transfers automatically when needed. Applications/leader controls, discovery/SSE and deployment are **not implemented yet**. Progress and verification limits are recorded in [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md).
 
 ## Run locally
 
@@ -43,11 +43,18 @@ The test database has its own port **54330**, database name and temporary storag
 npm run lint
 npm run typecheck
 npm test
+npm run test:race
 npm run build
 npm run db:check
 ```
 
-`npm test` runs shared validation, configuration, identity/team HTTP tests, independent rate-limit tests, and real PostgreSQL migration, constraint, transaction and idempotency tests. Team tests cover lifecycle, private-field permissions, 20 concurrent duplicate creates, replay after code rotation, failed-effect rollback, cleanup races and code expiry during a verified lock wait. Every team test finishes with B.1–B.8 invariant checks. The database suite also exercises a real deadlock and post-commit hooks. These do not yet prove the domain API's 50-person last-seat race, which is the Phase 4 gate. Race tests, seeding, load testing and chaos testing still exit nonzero with their planned phase.
+`npm test` runs shared validation, configuration, identity/team HTTP tests, independent rate-limit tests, and real PostgreSQL migration, constraint, transaction and idempotency tests. Team tests cover lifecycle, private-field permissions, 20 concurrent duplicate creates, replay after code rotation, failed-effect rollback, cleanup races and code expiry during a verified lock wait. Every team test finishes with B.1–B.8 invariant checks. The database suite also exercises a real deadlock and post-commit hooks. Seeding, load testing and chaos testing still exit nonzero with their planned phase.
+
+`npm run test:race` runs the separate release concurrency suite against the same dedicated test database. It repeats the simultaneous 50-user last-seat HTTP race **20 times**, each with fresh users, hackathon, schema and server. The required result is one 200, 49 `TEAM_FULL`, the exact four final members and zero B.1–B.8 violations. Other cases cover two/no seats, same-user competing joins, duplicate creates and joins, both lock orders for concurrent leaves and leave/join, real PostgreSQL deadlock recovery, retry limits and publication failures. Test barriers verify blocking with `pg_blocking_pids`; requests and SQL execute normally. Files run serially; requests within each case run concurrently.
+
+The application pool stays capped at **20**, with normal authentication, rate limits and database timeouts. Participants use actual distinct loopback source addresses (`127.0.0.2` onward), requiring a host that supports binding the IPv4 loopback range, as Linux does. No forwarded-IP header or limiter bypass is used. The same-user join/replay cases use 10 attempts within the in-flight code limit; the duplicate-create case uses 20. This topology does not promise that 50 concurrent joins behind one shared IP bypass the normal 40/IP in-flight limit. It is a correctness check, not a throughput benchmark.
+
+The last-seat suite writes sanitized results, final member IDs, invariant counts, pool usage and observed clock changes to gitignored `.cache/phase4/last-seat.json`; CI uploads the JSON evidence. Local Phase 4 verification passed **36 race tests**, including all 20 headline iterations. Earlier runs exposed roughly eight-second wall-clock jumps on this WSL host that caused premature PostgreSQL timeouts; [the build record](docs/BUILD_STATUS.md#verification-findings) includes the diagnosis. Clock diagnostics never skip tests, change timeouts or excuse failed assertions.
 
 `npm run migrate` prefers `DATABASE_URL_DIRECT`, applies all pending migrations in one advisory-locked transaction, and verifies checksums on later runs. Applied SQL files must not be edited; add another numbered migration. Server startup also runs migrations and stops on failure. The API build copies SQL alongside the compiled runner.
 
@@ -119,4 +126,4 @@ docs/             Build status and deployment prerequisites
 
 Shared code compiles before its consumers and exports JavaScript from `dist`; browser code must not import API or database modules. Password hashes never belong in response DTOs, including the current user's profile.
 
-`ARCHITECTURE.md` is a local planning reference excluded from Git at the owner's request. Phase 3 is the current review/commit boundary; the headline concurrency proof follows in Phase 4. Dependency audit findings and unverified deployment checks are recorded in [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md).
+`ARCHITECTURE.md` is a local planning reference excluded from Git at the owner's request. Phase 4 is the current review/commit boundary; applications and leader controls follow in Phase 5. Dependency audit findings and unverified deployment checks are recorded in [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md).
