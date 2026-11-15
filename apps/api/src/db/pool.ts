@@ -6,7 +6,7 @@ export function createPool(config: Config): pg.Pool {
   const pool = new pg.Pool({
     connectionString: config.DATABASE_URL,
     max: config.PG_POOL_MAX,
-    connectionTimeoutMillis: 2_000,
+    connectionTimeoutMillis: Number(process.env.PG_CONNECTION_TIMEOUT_MS ?? 10_000),
     idleTimeoutMillis: 30_000,
     statement_timeout: 5_000,
     application_name: 'teamforge',
