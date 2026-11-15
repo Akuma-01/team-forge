@@ -16,3 +16,6 @@ playwright-report/
 
 # Local design reference; excluded at the owner's request.
 /ARCHITECTURE.md
+
+# Local progress reference; excluded at the owner's request.
+/docs/BUILD_STATUS.md

@@ -74,7 +74,8 @@ export const profilePatchSchema = z.object({
   displayName: displayNameSchema.optional(), skills: skillsSchema.optional(), utcOffsetMin: offsetSchema.optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, 'Choose at least one field to update.');
 export const invitePreferenceSchema = z.object({ openToInvites: z.boolean() }).strict();
-export const hackathonParamsSchema = z.object({ hid: z.string().uuid() }).strict();
+const uuidParamSchema = z.string().uuid().transform((value) => value.toLowerCase());
+export const hackathonParamsSchema = z.object({ hid: uuidParamSchema }).strict();
 export const emptyObjectSchema = z.object({}).strict();
 export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
@@ -90,7 +91,7 @@ export type Hackathon = {
   registration: Registration | null;
 };
 
-export const teamParamsSchema = hackathonParamsSchema.extend({ tid: z.string().uuid() }).strict();
+export const teamParamsSchema = hackathonParamsSchema.extend({ tid: uuidParamSchema }).strict();
 export const teamCreateSchema = z.object({
   name: safeText.transform((value) => value.trim()).pipe(z.string().min(2).max(60)),
   description: safeText.transform((value) => value.trim()).pipe(z.string().max(500)).default(''),
@@ -108,3 +109,35 @@ export type MyTeam = {
 export type CreateTeamResult = { team: TeamDetail };
 export type JoinTeamResult = { team: TeamDetail; alreadyMember: boolean };
 export type LeaveTeamResult = { left: true; teamDeleted: boolean };
+
+export const teamPatchSchema = z.object({
+  name: teamCreateSchema.shape.name.optional(),
+  description: safeText.transform((value) => value.trim()).pipe(z.string().max(500)).optional(),
+  lookingFor: z.array(skillSchema).max(8).refine((value) => new Set(value).size === value.length, 'Choose each skill once.').optional(),
+  isOpen: z.boolean().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, 'Choose at least one field to update.');
+export const requestCreateSchema = z.object({
+  message: safeText.transform((value) => value.trim()).pipe(z.string().max(300)).default(''),
+}).strict();
+export const requestParamsSchema = hackathonParamsSchema.extend({ rid: uuidParamSchema }).strict();
+export const memberParamsSchema = teamParamsSchema.extend({ uid: uuidParamSchema }).strict();
+export const pageQuerySchema = z.object({
+  limit: z.string().regex(/^[1-9]\d?$/).transform(Number).pipe(z.number().int().max(50)).default(30),
+  cursor: z.string().min(1).max(200).regex(/^[A-Za-z0-9_-]+$/).optional(),
+}).strict();
+export type TeamPatch = z.infer<typeof teamPatchSchema>;
+export type RequestCreate = z.infer<typeof requestCreateSchema>;
+export type PageQuery = z.infer<typeof pageQuerySchema>;
+export type Page<T> = { items: T[]; nextCursor: string | null };
+export type JoinRequest = {
+  id: string; teamId: string; userId: string; message: string;
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired';
+  createdAt: string; decidedAt: string | null; decidedBy: string | null;
+};
+export type RequestResult = { request: JoinRequest };
+export type InboxRequest = JoinRequest & { applicant: { displayName: string; skills: Skill[]; utcOffsetMin: number } };
+export type InviteResult = { inviteCode: string; inviteExpiresAt: string };
+export type AuditEntry = {
+  id: string; teamId: string; actorId: string | null; targetUserId: string | null;
+  action: string; details: Record<string, unknown>; requestId: string | null; createdAt: string;
+};

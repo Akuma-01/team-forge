@@ -2,7 +2,7 @@
 
 Team formation for hackathons, built with Node 22, Express 5, PostgreSQL 16, React 18 and TypeScript.
 
-The foundation, identity flow, core team lifecycle and concurrency suite are implemented. Create an account, edit your profile, register for a hackathon, create a team, share an invite, join, and leave. Mutations use transactions, idempotency keys and audit records; leadership transfers automatically when needed. Applications/leader controls, discovery/SSE and deployment are **not implemented yet**. Progress and verification limits are recorded in [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md).
+The foundation, identity flow, core team lifecycle, application/leader-control APIs and concurrency suite are implemented. The browser supports account/profile setup, registration, team creation, invite sharing, joining and leaving. The API also supports applications, decisions, member removal, team edits, invite rotation and audit history; browser controls for these arrive in Phase 7. Mutations use transactions, idempotency keys and audit records; leadership transfers automatically when needed. Discovery/SSE and deployment remain future milestones.
 
 ## Run locally
 
@@ -50,11 +50,13 @@ npm run db:check
 
 `npm test` runs shared validation, configuration, identity/team HTTP tests, independent rate-limit tests, and real PostgreSQL migration, constraint, transaction and idempotency tests. Team tests cover lifecycle, private-field permissions, 20 concurrent duplicate creates, replay after code rotation, failed-effect rollback, cleanup races and code expiry during a verified lock wait. Every team test finishes with B.1–B.8 invariant checks. The database suite also exercises a real deadlock and post-commit hooks. Seeding, load testing and chaos testing still exit nonzero with their planned phase.
 
+Phase 5 adds 40 API cases for applications and leader controls, including the authorization matrix, hackathon isolation, pending limits, inbox/audit pagination, atomic acceptance and removal, and replay for all seven new mutation types. The mixed race file covers both lock orders for accept/code, competing accepts, removal/leave, rotation/join, leadership transfer, opposing decisions, withdrawal and automatic cancellation. Ordered races also check that only successful contenders retain idempotency records.
+
 `npm run test:race` runs the separate release concurrency suite against the same dedicated test database. It repeats the simultaneous 50-user last-seat HTTP race **20 times**, each with fresh users, hackathon, schema and server. The required result is one 200, 49 `TEAM_FULL`, the exact four final members and zero B.1–B.8 violations. Other cases cover two/no seats, same-user competing joins, duplicate creates and joins, both lock orders for concurrent leaves and leave/join, real PostgreSQL deadlock recovery, retry limits and publication failures. Test barriers verify blocking with `pg_blocking_pids`; requests and SQL execute normally. Files run serially; requests within each case run concurrently.
 
 The application pool stays capped at **20**, with normal authentication, rate limits and database timeouts. Participants use actual distinct loopback source addresses (`127.0.0.2` onward), requiring a host that supports binding the IPv4 loopback range, as Linux does. No forwarded-IP header or limiter bypass is used. The same-user join/replay cases use 10 attempts within the in-flight code limit; the duplicate-create case uses 20. This topology does not promise that 50 concurrent joins behind one shared IP bypass the normal 40/IP in-flight limit. It is a correctness check, not a throughput benchmark.
 
-The last-seat suite writes sanitized results, final member IDs, invariant counts, pool usage and observed clock changes to gitignored `.cache/phase4/last-seat.json`; CI uploads the JSON evidence. Local Phase 4 verification passed **36 race tests**, including all 20 headline iterations. Earlier runs exposed roughly eight-second wall-clock jumps on this WSL host that caused premature PostgreSQL timeouts; [the build record](docs/BUILD_STATUS.md#verification-findings) includes the diagnosis. Clock diagnostics never skip tests, change timeouts or excuse failed assertions.
+The last-seat suite writes sanitized results, final member IDs, invariant counts, pool usage and observed clock changes to gitignored `.cache/phase4/last-seat.json`; CI uploads the JSON evidence. Local runs exposed eight-to-nine-second wall-clock jumps on the WSL host that caused premature PostgreSQL timeouts; the full race gate still needs verification on a stable-clock host. Clock diagnostics never skip tests, change timeouts or excuse failed assertions.
 
 `npm run migrate` prefers `DATABASE_URL_DIRECT`, applies all pending migrations in one advisory-locked transaction, and verifies checksums on later runs. Applied SQL files must not be edited; add another numbered migration. Server startup also runs migrations and stops on failure. The API build copies SQL alongside the compiled runner.
 
@@ -83,6 +85,8 @@ Limits are in-process and require one app instance: signup 20 attempts/IP/hour, 
 
 Invalid/expired invite attempts additionally allow 10/user and 40/IP per 15 minutes. In-flight attempts reserve quota, and successful joins, replays and other domain conflicts refund that reservation.
 
+Application submissions additionally allow 20/user/minute, including duplicate attempts.
+
 ## Teams and retry contract
 
 All paths below are relative to `/api` and require authentication and hackathon registration. Team IDs are scoped to the hackathon.
@@ -94,6 +98,20 @@ All paths below are relative to `/api` and require authentication and hackathon 
 | POST | `/hackathons/:hid/teams` | 201 `{ team }`; body: `name`, optional `description`, `lookingFor`, `isOpen` |
 | POST | `/hackathons/:hid/teams/join-by-code` | 200 `{ team, alreadyMember }`; body: `{ code }` |
 | POST | `/hackathons/:hid/teams/:tid/leave` | 200 `{ left: true, teamDeleted }`; empty body |
+| POST | `/hackathons/:hid/teams/:tid/requests` | 201 `{ request }`, or 200 for an existing pending application; optional `message` |
+| DELETE | `/hackathons/:hid/requests/:rid` | Applicant only; 200 `{ request }` after withdrawal |
+| GET | `/hackathons/:hid/teams/:tid/requests` | Leader only; paginated pending inbox with applicant display profile |
+| POST | `/hackathons/:hid/requests/:rid/accept` | Leader only; 200 `{ request }`, atomically joining the applicant |
+| POST | `/hackathons/:hid/requests/:rid/decline` | Leader only; 200 `{ request }` |
+| PATCH | `/hackathons/:hid/teams/:tid` | Leader only; 200 `{ team }`; `name`, `description`, `lookingFor`, `isOpen` |
+| GET | `/hackathons/:hid/teams/:tid/invite` | Leader only; `{ inviteCode, inviteExpiresAt }` |
+| POST | `/hackathons/:hid/teams/:tid/invite` | Leader only; rotate and return `{ inviteCode, inviteExpiresAt }` |
+| DELETE | `/hackathons/:hid/teams/:tid/members/:uid` | Leader only; 200 `{ removed: true }`; rotates invite atomically |
+| GET | `/hackathons/:hid/teams/:tid/audit` | Current members only; paginated history |
+
+Inbox and audit accept `limit` (1–50, default 30) and an opaque `cursor`, returning `{ items, nextCursor }`. All other current routes reject query parameters. Audit IDs remain decimal strings to preserve PostgreSQL bigint precision. Deleted teams retain database history, but their history cannot be fetched through the member API.
+
+Applicants must be registered and have no team in the hackathon, with at most five pending applications. Closed/full teams reject new applications; closing a team does not prevent approval of an existing request. A failed full-team acceptance leaves the request pending and rolls back all effects. Successful acceptance cancels the applicant's other pending requests and records the deciding leader as actor. Leaders cannot remove themselves; leaving transfers leadership instead. A removed member can apply again or join using a newly shared code.
 
 Team capacity comes from the hackathon, and a person can belong to one team per hackathon. Minimum size determines readiness but does not prevent creating a smaller team. Private codes are 10 Crockford-base32 characters, default to 48-hour expiry (`INVITE_TTL_HOURS`, 1–720 hours), and can admit a member to a closed team. Unknown and expired codes return the same error. Code validation happens in a new SQL statement after the team lock is acquired.
 
@@ -126,4 +144,4 @@ docs/             Build status and deployment prerequisites
 
 Shared code compiles before its consumers and exports JavaScript from `dist`; browser code must not import API or database modules. Password hashes never belong in response DTOs, including the current user's profile.
 
-`ARCHITECTURE.md` is a local planning reference excluded from Git at the owner's request. Phase 4 is the current review/commit boundary; applications and leader controls follow in Phase 5. Dependency audit findings and unverified deployment checks are recorded in [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md).
+`ARCHITECTURE.md` is a local planning reference excluded from Git at the owner's request. Phase 5 is the current review/commit boundary; discovery and live state follow in Phase 6. Progress notes are kept locally and excluded from Git.

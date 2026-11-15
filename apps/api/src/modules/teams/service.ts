@@ -60,23 +60,23 @@ export async function myTeam(tx: Tx, userId: string, hackathonId: string): Promi
   return { team, pendingRequests: rows.map((row) => ({ id: row.id, teamId: row.team_id, teamName: row.team_name, message: row.message, createdAt: row.created_at.toISOString() })) };
 }
 
-async function membership(tx: Tx, context: TeamContext) {
+export async function membership(tx: Tx, context: TeamContext) {
   return (await tx.q<{ team_id: string }>('SELECT team_id FROM team_members WHERE hackathon_id = $1 AND user_id = $2', [context.hackathonId, context.userId])).rows[0];
 }
-async function audit(tx: Tx, context: TeamContext, teamId: string, action: string, target: string | null, details: Record<string, unknown> = {}) {
+export async function audit(tx: Tx, context: TeamContext, teamId: string, action: string, target: string | null, details: Record<string, unknown> = {}) {
   await tx.q(`INSERT INTO audit_log (hackathon_id, team_id, actor_id, target_user_id, action, details, request_id)
     VALUES ($1,$2,$3,$4,$5,$6,$7)`, [context.hackathonId, teamId, context.userId, target, action, details, context.requestId]);
 }
-async function cancelRequests(tx: Tx, context: TeamContext) {
+export async function cancelRequests(tx: Tx, context: TeamContext, applicantId = context.userId) {
   // Only request rows are updated. Acquiring another team's lock here would invert the hierarchy.
   await tx.q(`WITH cancelled AS (
-    UPDATE join_requests SET status = 'cancelled', decided_at = clock_timestamp(), decided_by = $2
+    UPDATE join_requests SET status = 'cancelled', decided_at = clock_timestamp(), decided_by = $3
     WHERE hackathon_id = $1 AND user_id = $2 AND status = 'pending' RETURNING id, team_id
   ) INSERT INTO audit_log (hackathon_id, team_id, actor_id, target_user_id, action, details, request_id)
-    SELECT $1, team_id, $2, $2, 'request.cancelled', jsonb_build_object('requestId', id, 'reason', 'joined_team'), $3 FROM cancelled`,
-  [context.hackathonId, context.userId, context.requestId]);
+    SELECT $1, team_id, $3, $2, 'request.cancelled', jsonb_build_object('requestId', id, 'reason', 'joined_other_team'), $4 FROM cancelled`,
+  [context.hackathonId, applicantId, context.userId, context.requestId]);
 }
-function changed(tx: Tx, context: TeamContext, teamId: string, deleted = false) {
+export function changed(tx: Tx, context: TeamContext, teamId: string, deleted = false) {
   if (context.publish) tx.afterCommit(() => context.publish!({ hackathonId: context.hackathonId, teamId, deleted }));
 }
 
@@ -95,7 +95,7 @@ export async function createTeam(tx: Tx, context: TeamContext, input: TeamCreate
   if (!teamId) throw busyError();
   await tx.q('INSERT INTO team_members (team_id, hackathon_id, user_id) VALUES ($1,$2,$3)', [teamId, context.hackathonId, context.userId]);
   await cancelRequests(tx, context);
-  await audit(tx, context, teamId, 'team.created', context.userId);
+  await audit(tx, context, teamId, 'team.created', context.userId, { name: input.name });
   const team = (await readTeam(tx, context.userId, context.hackathonId, teamId))!;
   changed(tx, context, teamId);
   return { team };
@@ -118,7 +118,7 @@ export async function joinTeam(tx: Tx, context: TeamContext, code: string) {
   if (existing) return { team: (await readTeam(tx, context.userId, context.hackathonId, locked.id))!, alreadyMember: true };
   if (locked.member_count >= locked.max_size) throw new AppError('TEAM_FULL', 409, 'Someone took the last seat. This team is full.');
   await tx.q('INSERT INTO team_members (team_id, hackathon_id, user_id) VALUES ($1,$2,$3)', [locked.id, context.hackathonId, context.userId]);
-  await audit(tx, context, locked.id, 'member.joined', context.userId);
+  await audit(tx, context, locked.id, 'member.joined', context.userId, { via: 'invite_code' });
   await cancelRequests(tx, context);
   const team = (await readTeam(tx, context.userId, context.hackathonId, locked.id))!;
   changed(tx, context, locked.id);
@@ -140,7 +140,7 @@ export async function leaveTeam(tx: Tx, context: TeamContext, teamId: string): P
       'SELECT user_id FROM team_members WHERE team_id = $1 ORDER BY joined_at, user_id LIMIT 1', [teamId]);
     if (!successor) throw new Error('A non-empty team must have a successor.');
     await tx.q('UPDATE teams SET leader_id = $2 WHERE id = $1', [teamId, successor.user_id]);
-    await audit(tx, context, teamId, 'leader.changed', successor.user_id, { previousLeaderId: context.userId });
+    await audit(tx, context, teamId, 'leader.changed', successor.user_id, { previousLeaderId: context.userId, reason: 'leader_left' });
   }
   changed(tx, context, teamId, team.member_count === 1);
   return { left: true, teamDeleted: team.member_count === 1 };

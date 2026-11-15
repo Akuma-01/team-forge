@@ -50,12 +50,12 @@ export async function raceFixture(count = 54, options: { maxSize?: number; obser
     let peakConnections = 0;
     db.pool.on('acquire', () => { peakConnections = Math.max(peakConnections, db.pool.totalCount); });
 
-    const call = <T = unknown>(actorIndex: number, path: string, body: unknown, key: string | null = randomUUID(), method = 'POST'): Promise<RaceResponse<T>> => {
+    const call = <T = unknown>(actorIndex: number, path: string, body: unknown, key: string | null = randomUUID(), method = 'POST', scopedHackathonId: string = hackathonId): Promise<RaceResponse<T>> => {
       const actor = actors[actorIndex]!;
       const data = JSON.stringify(body);
       return new Promise((resolve, reject) => {
         let sourceAddress: string | undefined;
-        const req = request(`${baseUrl}/api/hackathons/${hackathonId}${path}`, {
+        const req = request(`${baseUrl}/api/hackathons/${scopedHackathonId}${path}`, {
           method, agent: false, localAddress: actor.address,
           headers: { Origin: origin, Cookie: actor.cookie, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data),
             ...(key === null ? {} : { 'Idempotency-Key': key }) },
@@ -82,7 +82,7 @@ export async function raceFixture(count = 54, options: { maxSize?: number; obser
       assert.equal(result.status, 201, `Create fixture: ${result.status}`);
       return result.body.team;
     };
-    const join = (actor: number, code: string, key = randomUUID()) => call<JoinTeamResult>(actor, '/teams/join-by-code', { code }, key);
+    const join = (actor: number, code: string, key: string = randomUUID()) => call<JoinTeamResult>(actor, '/teams/join-by-code', { code }, key);
     const team = async (members = [0, 1, 2]) => {
       const created = await create(members[0]!);
       for (const actor of members.slice(1)) assert.equal((await join(actor, created.inviteCode!)).status, 200);

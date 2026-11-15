@@ -16,6 +16,7 @@ import { listHackathons, getHackathon, register, updatePreference } from '../hac
 import { domainMutation } from '../../db/idempotency.js';
 import { teamRouter } from '../teams/routes.js';
 import type { TeamOptions } from '../teams/routes.js';
+import { teamManagementRouter } from '../teams/managementRoutes.js';
 
 export type IdentityOptions = { pool: Pool; config: Config; limiter?: RateLimiter; publishTeamChange?: TeamOptions['publishTeamChange'] };
 
@@ -25,11 +26,11 @@ export function identityRouter({ pool, config, limiter = new SlidingWindowLimite
   const sessions = createSessions(config);
   router.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
-    validate(emptyObjectSchema, req.query);
     next();
   });
 
   router.post('/auth/signup', async (req, res) => {
+    validate(emptyObjectSchema, req.query);
     const input = validate(signupSchema, req.body);
     limiter.reserve(privateRateKey('signup-ip', req.ip ?? 'unknown'), 20, 60 * 60_000);
     const passwordHash = await passwords.hash(input.password); // Outside any locked transaction.
@@ -38,6 +39,7 @@ export function identityRouter({ pool, config, limiter = new SlidingWindowLimite
     res.status(201).json({ authenticated: true });
   });
   router.post('/auth/login', async (req, res) => {
+    validate(emptyObjectSchema, req.query);
     const input = validate(loginSchema, req.body);
     const releaseIp = limiter.reserve(privateRateKey('login-ip', req.ip ?? 'unknown'), 10, 15 * 60_000);
     let releaseEmail: (() => void) | undefined;
@@ -68,6 +70,7 @@ export function identityRouter({ pool, config, limiter = new SlidingWindowLimite
     limiter.reserve(`${read ? 'read' : 'mutation'}:${userId}`, read ? 600 : 60, 60_000);
     next();
   });
+  router.use(teamManagementRouter({ pool, config, limiter, publishTeamChange }));
   router.post('/auth/logout', (req, res) => {
     validate(emptyObjectSchema, req.body ?? {});
     sessions.clear(res);
