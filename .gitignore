@@ -9,6 +9,8 @@ coverage/
 !.env.example
 loadtest/tokens.json
 loadtest/summary.json
+loadtest/bin/
+loadtest/*.json
 test-results/
 playwright-report/
 .DS_Store

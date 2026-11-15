@@ -16,3 +16,5 @@ services:
         generateValue: true
       - key: PG_POOL_MAX
         value: "20"
+      - key: INVITE_TTL_HOURS
+        value: "48"
