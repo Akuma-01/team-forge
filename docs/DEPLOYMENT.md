@@ -70,6 +70,24 @@ Configure these environment variables in Render:
    - **Direct connection string** (Host does NOT contain `-pooler`):
      Use this for `DATABASE_URL_DIRECT`. Used for DDL migrations (`npm run migrate`), deterministic seeding (`npm run seed`), and advisory locking.
 
+### 3.1 Least-Privilege Runtime Role Configuration (Optional Hardening)
+
+To enforce database-level immutability for `audit_log` (defense-in-depth against SQL injection or compromised application credentials):
+
+1. Run migrations first under the database owner (`neondb_owner` / admin):
+   ```bash
+   DATABASE_URL="<NEON_DIRECT_URL>" npm run migrate
+   ```
+2. Inspect [roles.sql](file:///home/akuma/projects/hackathon/team-forge/apps/api/src/db/roles.sql) and execute it against your Neon database using your direct connection:
+   ```bash
+   psql "<NEON_DIRECT_URL>" -f apps/api/src/db/roles.sql
+   ```
+   *(Ensure you replace `REPLACE_WITH_STRONG_RUNTIME_PASSWORD` with a strong random secret).*
+3. Configure Render's runtime `DATABASE_URL` (pooled) to authenticate as `teamforge_app`, while keeping `DATABASE_URL_DIRECT` set to the owner/migration connection string:
+   - `teamforge_app` has full DML on mutable operational tables (`users`, `teams`, `team_members`, etc.).
+   - On `audit_log`, `teamforge_app` is granted only `SELECT` and `INSERT`. `UPDATE`, `DELETE`, and `TRUNCATE` are withheld at the database privilege level (`SQLSTATE 42501`).
+   - Because `teamforge_app` is not the table owner, it cannot `ALTER`, `DISABLE`, or `DROP` triggers or constraints.
+
 ---
 
 ## 4. Render Service Configuration

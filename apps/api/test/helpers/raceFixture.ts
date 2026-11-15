@@ -23,7 +23,7 @@ type Actor = { id: string; cookie: string; address: string };
 export type RaceResponse<T = unknown> = { status: number; body: T; headers: IncomingHttpHeaders; sourceAddress: string; userId: string };
 const origin = 'http://localhost:5173';
 
-export async function raceFixture(count = 54, options: { maxSize?: number; observe?: QueryObserver; publish?: (change: TeamChange) => void | Promise<void>; discovery?: Discovery } = {}) {
+export async function raceFixture(count = 54, options: { maxSize?: number; observe?: QueryObserver; publish?: (change: TeamChange) => void | Promise<void>; discovery?: Discovery; sameIp?: boolean } = {}) {
   const db = await testDatabase();
   const observer = new pg.Pool({ ...db.pool.options, max: 1 });
   let server: Awaited<ReturnType<typeof testServer>> | undefined;
@@ -37,7 +37,7 @@ export async function raceFixture(count = 54, options: { maxSize?: number; obser
     // boundary. Normal API verification, user lookups and all rate limits run.
     const issuedAt = Math.floor(Date.now() / 1000) - 60;
     const actors: Actor[] = await Promise.all(users.map(async (id, index) => ({
-      id, address: `127.0.0.${index + 2}`,
+      id, address: options.sameIp ? '127.0.0.1' : `127.0.0.${index + 2}`,
       cookie: `sid=${await new SignJWT({}).setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
         .setSubject(id).setIssuer(issuer).setAudience(audience).setIssuedAt(issuedAt).setExpirationTime(issuedAt + 604800).sign(secret)}`,
     })));

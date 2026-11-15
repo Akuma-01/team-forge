@@ -5,10 +5,12 @@ import { migrate } from '../../src/db/migrate.js';
 export function requireTestDatabase(env: NodeJS.ProcessEnv = process.env): string {
   const value = env.TEST_DATABASE_URL;
   const url = value ? URL.parse(value) : null;
+  const hostParam = url?.searchParams.get('host');
+  const isLocalUnixSocket = url?.searchParams.size === 1 && hostParam !== null && hostParam.startsWith('/');
   if (!value || !url || !['postgres:', 'postgresql:'].includes(url.protocol)
       || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
       || !/^\/[a-z0-9_]+_test$/.test(url.pathname)
-      || url.search !== '' || env.NODE_ENV === 'production') {
+      || (url.search !== '' && !isLocalUnixSocket) || env.NODE_ENV === 'production') {
     throw new Error('Tests require TEST_DATABASE_URL pointing to a local, dedicated database ending in _test.');
   }
   return value;

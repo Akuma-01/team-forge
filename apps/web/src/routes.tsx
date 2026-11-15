@@ -41,7 +41,7 @@ function Frame() {
   return <div className={styles.shell}>
     <a className="skip-link" href="#main">Skip to content</a>
     <header className={styles.header}>
-      <Link className={styles.brand} to="/" aria-label="TeamForge home"><span className={styles.mark} aria-hidden="true">T</span>TeamForge<span className={styles.brandDot}>.</span></Link>
+      <Link className={styles.brand} to="/"><span className={styles.mark} aria-hidden="true">T</span>TeamForge<span className={styles.brandDot} aria-hidden="true">.</span></Link>
       {session.data ? <nav className={styles.nav} aria-label="Account"><Link to={hid ? `/?hackathon=${hid}` : '/'}>Find teams</Link><Link to={hid ? `/me?hackathon=${hid}` : '/me'}>My team</Link><Link to={hid ? `/profile?hackathon=${hid}` : '/profile'}>Your profile</Link><button className={styles.textButton} disabled={signOut.isPending} onClick={() => signOut.mutate()}>Sign out</button></nav> : <span className={styles.headerNote}>Good things are built together.</span>}
     </header>
     <main id="main" tabIndex={-1} className={styles.main}>

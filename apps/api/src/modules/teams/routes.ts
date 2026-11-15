@@ -30,19 +30,34 @@ export function teamRouter({ pool, config, limiter, publishTeamChange }: TeamOpt
     const { hid } = validate(hackathonParamsSchema, req.params);
     const { code } = validate(joinCodeSchema, req.body);
     const userId = String(res.locals.userId);
-    const releaseUser = limiter.reserve(`join-failed-user:${userId}`, 10, 15 * 60_000);
-    let releaseIp: (() => void) | undefined;
-    let failedCode = false;
+    const ip = req.ip ?? 'unknown';
+
+    // IP flood protection: allows up to 100 concurrent in-flight requests per IP,
+    // accommodating 50 legitimate participants behind a single NAT in race tests without blocking.
+    const releaseFlood = limiter.reserve(privateRateKey('join-flood-ip', ip), 100, 60_000);
+
+    // Fast reject if this user or IP has already exhausted their invalid-code failure budget:
+    const releaseUserCheck = limiter.reserve(`join-failed-user:${userId}`, 10, 15 * 60_000);
+    releaseUserCheck();
+    const releaseIpCheck = limiter.reserve(privateRateKey('join-failed-ip', ip), 40, 15 * 60_000);
+    releaseIpCheck();
+
     try {
-      releaseIp = limiter.reserve(privateRateKey('join-failed-ip', req.ip ?? 'unknown'), 40, 15 * 60_000);
-      await domainMutation(pool, req, res, async (tx) => ({ status: 200, body: await joinTeam(tx, {
-        userId, hackathonId: hid, requestId: String(res.getHeader('X-Request-Id')), publish: publishTeamChange,
-      }, code) }));
+      await domainMutation(pool, req, res, async (tx) => ({
+        status: 200,
+        body: await joinTeam(tx, {
+          userId, hackathonId: hid, requestId: String(res.getHeader('X-Request-Id')), publish: publishTeamChange,
+        }, code),
+      }));
     } catch (error) {
-      failedCode = error instanceof AppError && error.code === 'INVALID_OR_EXPIRED_CODE';
+      if (error instanceof AppError && error.code === 'INVALID_OR_EXPIRED_CODE') {
+        // Code is confirmed invalid or expired. Record failure against quotas without releasing.
+        limiter.reserve(`join-failed-user:${userId}`, 10, 15 * 60_000);
+        limiter.reserve(privateRateKey('join-failed-ip', ip), 40, 15 * 60_000);
+      }
       throw error;
     } finally {
-      if (!failedCode) { releaseUser(); releaseIp?.(); }
+      releaseFlood();
     }
   });
   router.get('/hackathons/:hid/teams/:tid', async (req, res) => {

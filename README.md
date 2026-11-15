@@ -46,17 +46,23 @@ npm run lint
 npm run typecheck
 npm test
 npm run test:race
+npm run test:a11y
+npm run test:perf-ci
 npm run build
 npm run db:check
 ```
 
-`npm test` runs shared validation, configuration, identity/team HTTP tests, independent rate-limit tests, and real PostgreSQL migration, constraint, transaction and idempotency tests. Team tests cover lifecycle, private-field permissions, 20 concurrent duplicate creates, replay after code rotation, failed-effect rollback, cleanup races and code expiry during a verified lock wait. Every team test finishes with B.1–B.8 invariant checks. The database suite also exercises a real deadlock and post-commit hooks. Seeding, load testing and chaos testing still exit nonzero with their planned phase.
+`npm test` runs shared validation, configuration, identity/team HTTP tests, independent rate-limit tests, and real PostgreSQL migration, constraint, transaction and idempotency tests. Team tests cover lifecycle, private-field permissions, 20 concurrent duplicate creates, replay after code rotation, failed-effect rollback, cleanup races and code expiry during a verified lock wait. Every team test finishes with B.1–B.8 invariant checks. The database suite also exercises a real deadlock and post-commit hooks.
+
+`npm run test:a11y` runs automated WCAG 2.1 AA accessibility checks using `@axe-core/playwright` across 7 core views and modal dialogs (login, signup, onboarding, team management, member/leader views, leave modal, and discovery board) verifying zero violations and full keyboard traversability.
+
+`npm run test:perf-ci` executes a lightweight 20-second k6 performance smoke test with 10 VUs against the seeded database, enforcing error rate < 1% and p95 board latency < 500 ms. The GitHub Actions workflow (`.github/workflows/ci.yml`) includes a dedicated `perf-smoke` job running this check against a PostgreSQL 16 container. (Note: CI badge reflects local workflow configuration; remote GitHub execution runs when commits are pushed).
 
 Phase 5 adds 40 API cases for applications and leader controls, including the authorization matrix, hackathon isolation, pending limits, inbox/audit pagination, atomic acceptance and removal, and replay for all seven new mutation types. The mixed race file covers both lock orders for accept/code, competing accepts, removal/leave, rotation/join, leadership transfer, opposing decisions, withdrawal and automatic cancellation. Ordered races also check that only successful contenders retain idempotency records.
 
 `npm run test:race` runs the separate release concurrency suite against the same dedicated test database. It repeats the simultaneous 50-user last-seat HTTP race **20 times**, each with fresh users, hackathon, schema and server. The required result is one 200, 49 `TEAM_FULL`, the exact four final members and zero B.1–B.8 violations. Other cases cover two/no seats, same-user competing joins, duplicate creates and joins, both lock orders for concurrent leaves and leave/join, real PostgreSQL deadlock recovery, retry limits and publication failures. Test barriers verify blocking with `pg_blocking_pids`; requests and SQL execute normally. Files run serially; requests within each case run concurrently.
 
-The application pool stays capped at **20**, with normal authentication, rate limits and database timeouts. Participants use actual distinct loopback source addresses (`127.0.0.2` onward), requiring a host that supports binding the IPv4 loopback range, as Linux does. No forwarded-IP header or limiter bypass is used. The same-user join/replay cases use 10 attempts within the in-flight code limit; the duplicate-create case uses 20. This topology does not promise that 50 concurrent joins behind one shared IP bypass the normal 40/IP in-flight limit. It is a correctness check, not a throughput benchmark.
+The application pool stays capped at **20**, with normal authentication, rate limits and database timeouts. In-flight IP flood protection permits up to 100 concurrent requests per IP, ensuring 50 concurrent participants behind a single NAT or shared venue IP can race for the final seat without triggering HTTP 429. Only invalid/expired invite codes consume the 40/IP and 10/user failure quota. The same-user join/replay cases use 10 attempts within the user limit; the duplicate-create case uses 20.
 
 The last-seat suite writes sanitized results, final member IDs, invariant counts, pool usage and observed clock changes to gitignored `.cache/phase4/last-seat.json`; CI uploads the JSON evidence. Local WSL runs have exposed multi-second wall-clock jumps, including a measured 10.75-second backward jump during Phase 7 verification. Short-expiry, fresh-session and database-timeout checks have failed intermittently on that host. Clock diagnostics never skip tests or change assertions/timeouts; failed gates still need a clean run on a stable-clock host before deployment.
 
@@ -91,7 +97,7 @@ Unsafe `/api` methods require an `Origin` exactly matching `APP_ORIGIN`, includi
 
 Limits are in-process and require one app instance: signup 20 attempts/IP/hour, login 10 failures/15 minutes independently per IP and normalized email, authenticated mutations 60/user/minute and reads 600/user/minute. In-flight logins reserve quota; successful attempts refund only their own reservation. A 429 includes `Retry-After`. `TRUSTED_PROXY_CIDRS` defaults to empty (forwarded addresses ignored); configure only the verified proxy addresses/CIDRs at deployment.
 
-Invalid/expired invite attempts additionally allow 10/user and 40/IP per 15 minutes. In-flight attempts reserve quota, and successful joins, replays and other domain conflicts refund that reservation.
+Invalid/expired invite attempts allow 10/user and 40/IP per 15 minutes. In-flight IP flood protection permits up to 100 concurrent attempts per IP with immediate in-flight slot release. Valid unexpired invite codes are checked prior to quota reservation and do not consume the failed-code quota. Domain conflicts (such as `TEAM_FULL`, `ALREADY_IN_TEAM`, or idempotency replays) and successful joins never count against the invalid-code failure budget.
 
 Application submissions additionally allow 20/user/minute, including duplicate attempts.
 
