@@ -16,12 +16,15 @@ import { listHackathons, getHackathon, register, updatePreference } from '../hac
 import { domainMutation } from '../../db/idempotency.js';
 import { teamRouter } from '../teams/routes.js';
 import type { TeamOptions } from '../teams/routes.js';
+import { createDiscovery, discoveryRouter } from '../discovery/routes.js';
+import type { Discovery } from '../discovery/routes.js';
 import { teamManagementRouter } from '../teams/managementRoutes.js';
 
-export type IdentityOptions = { pool: Pool; config: Config; limiter?: RateLimiter; publishTeamChange?: TeamOptions['publishTeamChange'] };
+export type IdentityOptions = { pool: Pool; config: Config; limiter?: RateLimiter; publishTeamChange?: TeamOptions['publishTeamChange']; discovery?: Discovery };
 
-export function identityRouter({ pool, config, limiter = new SlidingWindowLimiter(), publishTeamChange }: IdentityOptions) {
+export function identityRouter({ pool, config, limiter = new SlidingWindowLimiter(), publishTeamChange: externalPublish, discovery = createDiscovery() }: IdentityOptions) {
   const router = Router();
+  const publishTeamChange: TeamOptions['publishTeamChange'] = async (change) => { discovery.changed(change.hackathonId); await externalPublish?.(change); };
   const passwords = createPasswords();
   const sessions = createSessions(config);
   router.use((req, res, next) => {
@@ -61,7 +64,8 @@ export function identityRouter({ pool, config, limiter = new SlidingWindowLimite
   });
 
   router.use(async (req, res, next) => {
-    const userId = await sessions.read(req);
+    const { userId, expiresAt } = await sessions.readSession(req);
+    res.locals.sessionExpiresAt = expiresAt;
     if ((await pool.query('SELECT 1 FROM users WHERE id = $1', [userId])).rowCount !== 1) {
       throw new AppError('UNAUTHENTICATED', 401, 'Please sign in to continue.');
     }
@@ -70,6 +74,7 @@ export function identityRouter({ pool, config, limiter = new SlidingWindowLimite
     limiter.reserve(`${read ? 'read' : 'mutation'}:${userId}`, read ? 600 : 60, 60_000);
     next();
   });
+  router.use(discoveryRouter({ pool, config, limiter }, discovery));
   router.use(teamManagementRouter({ pool, config, limiter, publishTeamChange }));
   router.post('/auth/logout', (req, res) => {
     validate(emptyObjectSchema, req.body ?? {});
@@ -79,7 +84,11 @@ export function identityRouter({ pool, config, limiter = new SlidingWindowLimite
   router.get('/me', async (_req, res) => res.json(await profile({ q: (sql, params) => pool.query(sql, params) }, String(res.locals.userId))));
   router.patch('/me', async (req, res) => {
     const input = validate(profilePatchSchema, req.body);
-    await domainMutation(pool, req, res, async (tx) => ({ status: 200, body: await updateProfile(tx, String(res.locals.userId), input) }));
+    await domainMutation(pool, req, res, async (tx) => {
+      const body = await updateProfile(tx, String(res.locals.userId), input);
+      tx.afterCommit(() => { for (const r of body.registrations) discovery.changed(r.hackathonId); });
+      return { status: 200, body };
+    });
   });
   router.get('/hackathons', async (_req, res) => res.json(await listHackathons(pool, String(res.locals.userId))));
   router.get('/hackathons/:hid', async (req, res) => {
@@ -89,12 +98,20 @@ export function identityRouter({ pool, config, limiter = new SlidingWindowLimite
   router.post('/hackathons/:hid/register', async (req, res) => {
     const { hid } = validate(hackathonParamsSchema, req.params);
     validate(emptyObjectSchema, req.body ?? {});
-    await domainMutation(pool, req, res, async (tx) => ({ status: 200, body: await register(tx, String(res.locals.userId), hid) }));
+    await domainMutation(pool, req, res, async (tx) => {
+      const body = await register(tx, String(res.locals.userId), hid);
+      tx.afterCommit(() => discovery.changed(hid));
+      return { status: 200, body };
+    });
   });
   router.patch('/hackathons/:hid/me', async (req, res) => {
     const { hid } = validate(hackathonParamsSchema, req.params);
     const { openToInvites } = validate(invitePreferenceSchema, req.body);
-    await domainMutation(pool, req, res, async (tx) => ({ status: 200, body: await updatePreference(tx, String(res.locals.userId), hid, openToInvites) }));
+    await domainMutation(pool, req, res, async (tx) => {
+      const body = await updatePreference(tx, String(res.locals.userId), hid, openToInvites);
+      tx.afterCommit(() => discovery.changed(hid));
+      return { status: 200, body };
+    });
   });
   router.use(teamRouter({ pool, config, limiter, publishTeamChange }));
   return router;

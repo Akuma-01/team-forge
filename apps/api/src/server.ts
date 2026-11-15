@@ -44,6 +44,7 @@ async function main() {
     closing = true;
     const deadline = setTimeout(() => process.exit(1), 10_000);
     deadline.unref();
+    app.locals.closeRealtime?.();
     server.close(() => {
       void stopCleanup().then(() => pool.end()).then(() => {
         clearTimeout(deadline);

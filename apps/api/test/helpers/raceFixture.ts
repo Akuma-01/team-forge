@@ -17,12 +17,13 @@ import { testServer } from './testServer.js';
 import { observePool } from './observePool.js';
 import type { QueryObserver } from './observePool.js';
 import { waitFor } from './concurrency.js';
+import type { Discovery } from '../../src/modules/discovery/routes.js';
 
 type Actor = { id: string; cookie: string; address: string };
 export type RaceResponse<T = unknown> = { status: number; body: T; headers: IncomingHttpHeaders; sourceAddress: string; userId: string };
 const origin = 'http://localhost:5173';
 
-export async function raceFixture(count = 54, options: { maxSize?: number; observe?: QueryObserver; publish?: (change: TeamChange) => void | Promise<void> } = {}) {
+export async function raceFixture(count = 54, options: { maxSize?: number; observe?: QueryObserver; publish?: (change: TeamChange) => void | Promise<void>; discovery?: Discovery } = {}) {
   const db = await testDatabase();
   const observer = new pg.Pool({ ...db.pool.options, max: 1 });
   let server: Awaited<ReturnType<typeof testServer>> | undefined;
@@ -44,6 +45,7 @@ export async function raceFixture(count = 54, options: { maxSize?: number; obser
     const published: TeamChange[] = [];
     server = await testServer(createApp({ checkDatabase: async () => { await db.pool.query('SELECT 1'); }, identity: {
       pool: instrumented?.pool ?? db.pool, config,
+      ...(options.discovery ? { discovery: options.discovery } : {}),
       publishTeamChange: async (change) => { published.push(change); await options.publish?.(change); },
     } }));
     const baseUrl = server.url;
@@ -101,7 +103,7 @@ export async function raceFixture(count = 54, options: { maxSize?: number; obser
       try { await server!.close(); }
       finally { await observer.end(); await db.dispose(); }
     };
-    return { ...db, dispose, observer, actors, hackathonId, published, instrumented, call, create, join, team, invariantReport, idle,
+    return { ...db, baseUrl, dispose, observer, actors, hackathonId, published, instrumented, call, create, join, team, invariantReport, idle,
       connections: () => ({ max: db.pool.options.max, peak: peakConnections, total: db.pool.totalCount, idle: db.pool.idleCount, waiting: db.pool.waitingCount }) };
   } catch (error) { await server?.close(); await observer.end(); await db.dispose(); throw error; }
 }

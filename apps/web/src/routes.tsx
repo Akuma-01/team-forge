@@ -7,12 +7,16 @@ import { AuthPage } from './features/auth/AuthPage';
 import { ProfileForm } from './features/profile/ProfileForm';
 import { Hackathons } from './features/hackathons/Hackathons';
 import { TeamPage } from './features/team/TeamPage';
+import { useHackathonStream } from './realtime/useHackathonStream';
 import styles from './App.module.css';
 
 function Frame() {
   const session = useSession();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const selected = new URLSearchParams(search).get('hackathon') ?? session.data?.registrations[0]?.hackathonId;
+  const hid = session.data?.registrations.some((r) => r.hackathonId === selected) ? selected : undefined;
+  const liveStatus = useHackathonStream(session.data?.id, hid);
   const previousPath = useRef(pathname);
   const signOut = useMutation({
     mutationFn: () => api('/auth/logout', { method: 'POST', body: {} }),
@@ -40,6 +44,7 @@ function Frame() {
       {session.data ? <nav className={styles.nav} aria-label="Account"><Link to="/me">My team</Link><Link to="/profile">Your profile</Link><button className={styles.textButton} disabled={signOut.isPending} onClick={() => signOut.mutate()}>Sign out</button></nav> : <span className={styles.headerNote}>Good things are built together.</span>}
     </header>
     <main id="main" tabIndex={-1} className={styles.main}>
+      {liveStatus && <p className={styles.muted} role="status">{liveStatus}</p>}
       {signOut.isError && <p className={styles.error} role="alert">{signOut.error.message}</p>}<Outlet />
     </main>
     <footer className={styles.footer}><span>TeamForge</span><span>Different skills. Shared ambition.</span></footer>

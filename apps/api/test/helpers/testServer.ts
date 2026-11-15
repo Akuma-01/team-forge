@@ -9,6 +9,7 @@ export async function testServer(app: Express) {
   return {
     url,
     close: () => new Promise<void>((resolve, reject) => {
+      app.locals.closeRealtime?.();
       server.close((error) => error ? reject(error) : resolve());
       server.closeAllConnections();
     }),

@@ -6,6 +6,7 @@ import type { ApiError, ErrorCode, Health } from '@teamforge/shared';
 import { AppError } from './db/errors.js';
 import { identityRouter } from './modules/auth/routes.js';
 import type { IdentityOptions } from './modules/auth/routes.js';
+import { createDiscovery } from './modules/discovery/routes.js';
 import { requireOrigin } from './middleware/origin.js';
 
 type AppOptions = {
@@ -59,7 +60,11 @@ export function createApp(options: AppOptions) {
   });
 
   // Future API routes are mounted above this boundary. Never send SPA HTML for an API miss.
-  if (options.identity) app.use('/api', identityRouter(options.identity));
+  if (options.identity) {
+    const discovery = options.identity.discovery ?? createDiscovery();
+    app.locals.closeRealtime = () => discovery.close();
+    app.use('/api', identityRouter({ ...options.identity, discovery }));
+  }
   app.use('/api', (_req, res) => sendError(res, 404, 'NOT_FOUND', 'Resource not found.'));
   app.use(['/health', '/ready', '/metrics'], (_req, res) => {
     sendError(res, 404, 'NOT_FOUND', 'Resource not found.');

@@ -141,3 +141,19 @@ export type AuditEntry = {
   id: string; teamId: string; actorId: string | null; targetUserId: string | null;
   action: string; details: Record<string, unknown>; requestId: string | null; createdAt: string;
 };
+
+export const boardQuerySchema = pageQuerySchema.extend({
+  needs: skillSchema.optional(),
+  q: safeText.transform((value) => value.trim().toLowerCase()).pipe(z.string().max(100)).default(''),
+}).strict();
+export type BoardQuery = z.infer<typeof boardQuerySchema>;
+export type ScoreBreakdown = {
+  skill: { needCovered: Skill[]; newToTeam: Skill[]; redundant: Skill[]; needCoverage: number; complementRatio: number; score: number };
+  timezone: { offsetMin: number; teamReferenceOffsetMin: number; deltaHours: number; overlapHours: number; score: number };
+  total: number;
+};
+export type Suggestion = { userId: string; displayName: string; skills: Skill[]; utcOffsetMin: number; score: number; breakdown: ScoreBreakdown };
+export type Suggestions = {
+  scoring: { weights: { skill: number; timezone: number; needCoverage: number; complement: number }; workdayHours: number; explanation: string };
+  items: Suggestion[];
+};
