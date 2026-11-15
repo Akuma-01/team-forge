@@ -51,6 +51,7 @@ Configure these environment variables in Render:
 | `INVITE_TTL_HOURS` | Number | `48` (Default invite code validity in hours) | Production |
 | `BOARD_CACHE_TTL_MS` | Number | `1000` (In-memory discovery cache TTL in ms) | Optional |
 | `TRUSTED_PROXY_CIDRS`| String | Comma-separated trusted ingress IPs/CIDRs (leave empty if behind Render proxy) | Optional |
+| `SEED_DEMO` | `true` | Explicit acknowledgement of a demo/test seed target | Required for seeding |
 | `SEED_PASSWORD` | String | Demo user password for seeded accounts (demo only) | Optional |
 
 > [!IMPORTANT]
@@ -130,12 +131,12 @@ Migrations are idempotent and automated:
 To populate the 10,000 users, 2,000 teams, and 4,900 memberships on the remote database for benchmarking or demo:
 
 ```bash
-DATABASE_URL="<NEON_DIRECT_URL>" DATABASE_URL_DIRECT="<NEON_DIRECT_URL>" SEED_PASSWORD="<DEMO_PASSWORD>" npm run seed
+DATABASE_URL="<NEON_DIRECT_URL>" DATABASE_URL_DIRECT="<NEON_DIRECT_URL>" SEED_DEMO=true SEED_PASSWORD="<DEMO_PASSWORD>" npm run seed
 ```
 
 - Target execution: under 60 seconds (typically ~3–5 seconds via set-based SQL).
-- Safe and repeatable: cleans existing `seed_user_*` records and demo hackathon teams without deleting real user registrations.
-- Generates `loadtest/tokens.json` containing 200 authenticated session JWTs for load testing.
+- Requires `SEED_DEMO=true` and an explicitly chosen demo database. First run inserts the dataset; repeats verify the baseline and refresh tokens without deleting or resetting any rows. If registrations or team sizes have changed, it refuses and preserves all activity. Use a fresh demo database for a pristine baseline. Changing `SEED_PASSWORD` on a repeat does not reset existing passwords.
+- Generates `loadtest/tokens.json` containing 200 two-hour session JWTs with private file permissions (0600). Never commit or publish this file.
 
 ---
 
@@ -167,3 +168,5 @@ Execute this verification sequence against the live deployed URL:
    - Remaining members leave until empty; verify team row is safely removed from board.
 8. [ ] **Database Invariants**:
    - Run `npm run invariants` against the remote database; verify 0 violations across all 8 checks.
+
+Runtime role provisioning creates `teamforge_app` without a usable password and grants access to the currently connected database. Set a random password through the provider or `psql \password teamforge_app`; never put it in the SQL file. Use the owner connection for migrations and the restricted role for runtime traffic.

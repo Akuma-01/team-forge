@@ -1,16 +1,18 @@
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, open } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import type { Pool } from 'pg';
 import { readConfig } from '../apps/api/src/config.js';
 import { createPool } from '../apps/api/src/db/pool.js';
 import { createPasswords } from '../apps/api/src/modules/auth/password.js';
-import { createSessions } from '../apps/api/src/modules/auth/session.js';
+import { SignJWT } from 'jose';
+import { issuer, audience } from '../apps/api/src/modules/auth/session.js';
 import { assertInvariants } from '../apps/api/src/db/invariants.js';
 
 export const SEED_HACKATHON_ID = '00000000-0000-4000-a000-000000000001';
 export const SEED_HACKATHON_NAME = 'Hack4Hack Crew Hiring Challenge 2026';
 
-export async function seed(poolOrConfig?: Pool) {
+export async function seed(poolOrConfig?: Pool, outputDirectory = resolve('loadtest')) {
+  if (process.env.SEED_DEMO !== 'true') throw new Error('Seeding requires SEED_DEMO=true and an explicitly selected demo/test database.');
   const startTime = performance.now();
   const config = readConfig();
   const pool = poolOrConfig?.query ? poolOrConfig : createPool({
@@ -35,23 +37,19 @@ export async function seed(poolOrConfig?: Pool) {
       // Set timeout limits for safety
       await client.query("SET LOCAL statement_timeout = '120s'");
 
-      // Check if previous seed data exists and clean it up safely without touching real users
-      console.info('Cleaning any existing seeded demo records...');
-      await client.query('DELETE FROM team_members WHERE hackathon_id = $1', [SEED_HACKATHON_ID]);
-      await client.query('DELETE FROM join_requests WHERE hackathon_id = $1', [SEED_HACKATHON_ID]);
-      await client.query('DELETE FROM teams WHERE hackathon_id = $1', [SEED_HACKATHON_ID]);
-      await client.query('DELETE FROM hackathon_participants WHERE hackathon_id = $1', [SEED_HACKATHON_ID]);
-      await client.query("DELETE FROM users WHERE email LIKE 'seed_user_%@teamforge.demo'");
-
+      // Serialize repeat invocations without deleting participants, requests or history.
+      await client.query('SELECT pg_advisory_xact_lock(7348261)');
+      const existing = await client.query<{ name: string }>('SELECT name FROM hackathons WHERE id=$1', [SEED_HACKATHON_ID]);
+      if (existing.rows.length && existing.rows[0]!.name !== SEED_HACKATHON_NAME) {
+        throw new Error('The seed hackathon ID is already in use; refusing to change existing data.');
+      }
+      if (!existing.rows.length) {
       // 2. Ensure the demo hackathon exists
       console.info('Upserting hackathon...');
       await client.query(`
         INSERT INTO hackathons (id, name, min_team_size, max_team_size)
         VALUES ($1, $2, 2, 4)
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          min_team_size = EXCLUDED.min_team_size,
-          max_team_size = EXCLUDED.max_team_size;
+;
       `, [SEED_HACKATHON_ID, SEED_HACKATHON_NAME]);
 
       // 3. Insert exactly 10,000 deterministic users
@@ -218,6 +216,22 @@ export async function seed(poolOrConfig?: Pool) {
         FROM memberships m;
       `, [SEED_HACKATHON_ID]);
 
+      } else {
+        console.info('Existing demo dataset found; preserving all rows and verifying baseline counts.');
+      }
+      const counts = (await client.query(`SELECT
+        (SELECT count(*)::int FROM hackathon_participants WHERE hackathon_id=$1) AS participants,
+        (SELECT count(*)::int FROM teams WHERE hackathon_id=$1) AS teams,
+        (SELECT count(*)::int FROM team_members WHERE hackathon_id=$1) AS memberships,
+        (SELECT count(*)::int FROM generate_series(1,10000) AS i
+          JOIN users u ON u.id=(lpad(to_hex(i),8,'0') || '-0000-4000-a000-' || lpad(to_hex(i),12,'0'))::uuid
+            AND u.email='seed_user_' || lpad(i::text,5,'0') || '@teamforge.demo'
+          JOIN hackathon_participants p ON p.user_id=u.id AND p.hackathon_id=$1) AS demo_participants`, [SEED_HACKATHON_ID])).rows[0];
+      const sizes = (await client.query('SELECT member_count, count(*)::int AS count FROM teams WHERE hackathon_id=$1 GROUP BY member_count ORDER BY member_count', [SEED_HACKATHON_ID])).rows;
+      if (counts.participants !== 10000 || counts.demo_participants !== 10000 || counts.teams !== 2000 || counts.memberships !== 4900
+        || JSON.stringify(sizes) !== JSON.stringify([{ member_count: 1, count: 400 }, { member_count: 2, count: 600 }, { member_count: 3, count: 700 }, { member_count: 4, count: 300 }])) {
+        throw new Error('Demo dataset differs from the baseline; use a fresh demo/test database. Existing data was not reset.');
+      }
       await client.query('COMMIT');
       console.info('Database transaction committed successfully.');
     } catch (error) {
@@ -229,26 +243,33 @@ export async function seed(poolOrConfig?: Pool) {
 
     // 8. Generate short-lived auth tokens for 200 seeded users in loadtest/tokens.json
     console.info('Generating tokens for 200 users...');
-    const sessions = createSessions(config);
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const expiresAt = issuedAt + 2 * 60 * 60;
+    const key = new TextEncoder().encode(config.JWT_SECRET);
     const tokens: string[] = [];
     for (let i = 1; i <= 200; i++) {
       const hex = i.toString(16).padStart(8, '0');
       const hexEnd = i.toString(16).padStart(12, '0');
       const userId = `${hex}-0000-4000-a000-${hexEnd}`;
-      const token = await sessions.issue(userId);
+      const token = await new SignJWT({}).setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+        .setSubject(userId).setIssuer(issuer).setAudience(audience)
+        .setIssuedAt(issuedAt).setExpirationTime(expiresAt).sign(key);
       tokens.push(token);
     }
 
-    const tokensPath = resolve(process.cwd(), 'loadtest/tokens.json');
+    const tokensPath = resolve(outputDirectory, 'tokens.json');
     await mkdir(dirname(tokensPath), { recursive: true });
-    await writeFile(tokensPath, JSON.stringify(tokens, null, 2), 'utf-8');
+    const tokenFile = await open(tokensPath, 'w', 0o600);
+    try { await tokenFile.chmod(0o600); await tokenFile.writeFile(JSON.stringify(tokens, null, 2), 'utf-8'); }
+    finally { await tokenFile.close(); }
     console.info(`Saved ${tokens.length} short-lived tokens to ${tokensPath}`);
 
     // Also write target info for load test scripts
-    const targetPath = resolve(process.cwd(), 'loadtest/target.json');
+    const targetPath = resolve(outputDirectory, 'target.json');
     await writeFile(targetPath, JSON.stringify({
       hackathonId: SEED_HACKATHON_ID,
       hackathonName: SEED_HACKATHON_NAME,
+      tokenExpiresAt: new Date(expiresAt * 1000).toISOString(),
       seededUsers: 10000,
       seededTeams: 2000,
       seededMemberships: 4900,

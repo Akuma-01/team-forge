@@ -6,7 +6,7 @@ export function requireTestDatabase(env: NodeJS.ProcessEnv = process.env): strin
   const value = env.TEST_DATABASE_URL;
   const url = value ? URL.parse(value) : null;
   const hostParam = url?.searchParams.get('host');
-  const isLocalUnixSocket = url?.searchParams.size === 1 && hostParam !== null && hostParam.startsWith('/');
+  const isLocalUnixSocket = url?.searchParams.size === 1 && typeof hostParam === 'string' && hostParam.startsWith('/');
   if (!value || !url || !['postgres:', 'postgresql:'].includes(url.protocol)
       || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
       || !/^\/[a-z0-9_]+_test$/.test(url.pathname)

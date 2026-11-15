@@ -1,76 +1,25 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { startServer, stopServer, k6Command, requireK6Success } from './benchmark-process.js';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { cpus, release } from 'node:os';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { checkInvariants } from '../apps/api/src/db/invariants.js';
 import { createPool } from '../apps/api/src/db/pool.js';
 import { readConfig } from '../apps/api/src/config.js';
-import { SEED_HACKATHON_ID, seed } from './seed.js';
+import { SEED_HACKATHON_ID } from './seed.js';
 
 const ROOT_DIR = resolve(import.meta.dirname, '..');
-const K6_BIN = resolve(ROOT_DIR, 'loadtest/bin/k6');
-const TOKENS_PATH = resolve(ROOT_DIR, 'loadtest/tokens.json');
+const TOKENS_PATH = resolve(process.env.TOKENS_FILE ?? resolve(ROOT_DIR, 'loadtest/tokens.json'));
 const BOARD_K6 = resolve(ROOT_DIR, 'loadtest/board.k6.js');
+const OUTPUT_DIR = resolve(process.env.LOADTEST_OUTPUT_DIR ?? resolve(ROOT_DIR, 'loadtest/runs', new Date().toISOString().replaceAll(':', '-') + '-' + randomUUID().slice(0, 8)));
 
-async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(url);
-      if (res.status === 200) return;
-    } catch {
-      // Server not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`Server failed to respond at ${url} within ${timeoutMs}ms`);
-}
-
-async function startServer(): Promise<{ server: ChildProcess; port: number }> {
-  const port = 8080;
-  console.info(`Starting API server on port ${port}...`);
-
-  const server = spawn('node', ['--env-file-if-exists=.env', 'apps/api/dist/server.js'], {
-    cwd: ROOT_DIR,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: String(port) },
-  });
-
-  server.stdout?.on('data', (d) => {
-    const line = d.toString().trim();
-    if (line) console.log(`[server] ${line}`);
-  });
-
-  server.stderr?.on('data', (d) => {
-    const line = d.toString().trim();
-    if (line) console.error(`[server err] ${line}`);
-  });
-
-  await waitForServer(`http://127.0.0.1:${port}/ready`);
-  console.info(`API server is ready at http://127.0.0.1:${port}`);
-  return { server, port };
-}
-
-async function stopServer(server: ChildProcess): Promise<void> {
-  if (server.killed || server.exitCode !== null) return;
-  console.info('Stopping API server gracefully...');
-  server.kill('SIGTERM');
-  await new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => {
-      server.kill('SIGKILL');
-      resolve();
-    }, 5000);
-    server.once('exit', () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-  });
-}
 
 function runK6(scenario: 'realistic' | 'stress', port: number, isRerun = false): Promise<{ code: number; summaryFile: string; rawFile: string }> {
   const suffix = isRerun ? '-rerun' : '';
-  const summaryFile = resolve(ROOT_DIR, `loadtest/summary-${scenario}${suffix}.json`);
-  const rawFile = resolve(ROOT_DIR, `loadtest/raw-${scenario}${suffix}.json`);
+  const summaryFile = resolve(OUTPUT_DIR, `summary-${scenario}${suffix}.json`);
+  const rawFile = resolve(OUTPUT_DIR, `raw-${scenario}${suffix}.json`);
 
   console.info(`\n========================================================`);
   console.info(`Running k6 scenario: ${scenario.toUpperCase()}${isRerun ? ' (CONTROLLED RERUN)' : ''}`);
@@ -94,7 +43,7 @@ function runK6(scenario: 'realistic' | 'stress', port: number, isRerun = false):
   };
 
   return new Promise((resolvePromise, reject) => {
-    const proc = spawn(K6_BIN, args, { cwd: ROOT_DIR, stdio: 'inherit', env });
+    const proc = spawn(k6Command(), args, { cwd: ROOT_DIR, stdio: 'inherit', env });
     proc.on('error', reject);
     proc.on('close', (code) => {
       resolvePromise({ code: code ?? 1, summaryFile, rawFile });
@@ -132,82 +81,75 @@ function startClockMonitor(): { stop: () => { jumps: Array<{ time: string; delta
 
 async function main() {
   const isRerun = process.argv.includes('--rerun');
-  const nonFlagArgs = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
-  const targetScenario = nonFlagArgs[0]?.toLowerCase() || 'both';
-
-  // Ensure tokens.json exists
-  if (!existsSync(TOKENS_PATH)) {
-    console.info('Tokens file not found; running database seed first...');
-    await seed();
-  }
-
-  // Ensure k6 binary exists
-  if (!existsSync(K6_BIN)) {
-    throw new Error(`k6 binary not found at ${K6_BIN}`);
-  }
-
-  const { server, port } = await startServer();
-  const scenariosToRun: Array<'realistic' | 'stress'> =
-    targetScenario === 'realistic' ? ['realistic']
-    : targetScenario === 'stress' ? ['stress']
-    : ['realistic', 'stress'];
-
-  const results: Record<string, Record<string, unknown>> = {};
-
-  const clockMonitor = isRerun ? startClockMonitor() : null;
-
-  try {
-    for (const sc of scenariosToRun) {
-      const res = await runK6(sc, port, isRerun);
-      if (existsSync(res.summaryFile)) {
-        const rawSummary = await readFile(res.summaryFile, 'utf-8');
-        results[sc] = JSON.parse(rawSummary);
-      }
-    }
-
-    if (clockMonitor) {
-      const clockData = clockMonitor.stop();
-      const clockPath = resolve(ROOT_DIR, 'loadtest/clock-probe-stress-rerun.json');
-      await writeFile(clockPath, JSON.stringify(clockData, null, 2), 'utf-8');
-      console.info(`Saved clock jump telemetry to ${clockPath} (${clockData.jumps.length} jumps observed)`);
-    }
-
-    // Only update default loadtest/summary.json if not a specific rerun
-    if (!isRerun) {
-      if (results.realistic) {
-        await writeFile(resolve(ROOT_DIR, 'loadtest/summary.json'), JSON.stringify(results.realistic, null, 2), 'utf-8');
-      } else if (results.stress) {
-        await writeFile(resolve(ROOT_DIR, 'loadtest/summary.json'), JSON.stringify(results.stress, null, 2), 'utf-8');
-      }
-    }
-  } finally {
-    if (clockMonitor) clockMonitor.stop();
-    await stopServer(server);
-  }
-
-  // Task 2 requirement: Run invariant checker after performance testing
-  console.info('\nVerifying database invariants after load testing...');
+  const args = process.argv.slice(2).filter((arg) => arg !== '--rerun');
+  const target = args[0] ?? 'both';
+  if (args.length > 1 || !['both', 'realistic', 'stress'].includes(target)) throw new Error('Use realistic, stress or both, optionally --rerun.');
+  if (!existsSync(TOKENS_PATH)) throw new Error('Tokens missing. Run SEED_DEMO=true npm run seed against a demo/test database first.');
+  const version = execFileSync(k6Command(), ['version'], { encoding: 'utf8' }).trim();
   const config = readConfig();
   const pool = createPool(config);
+  const scenarios: Array<'realistic' | 'stress'> = target === 'both' ? ['realistic', 'stress'] : [target as 'realistic' | 'stress'];
+  const metadata: Record<string, unknown> = {
+    startedAt: new Date().toISOString(),
+    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim(),
+    dirtyWorkingTree: !!execFileSync('git', ['status', '--porcelain'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim(),
+    node: process.version, kernel: release(), cpu: cpus()[0]?.model, environment: 'local', k6: version,
+    poolMax: config.PG_POOL_MAX, readLimitPerUserMinute: 600, cacheTtlMs: 1000,
+    warmupSeconds: 10, measurementSeconds: 60, vus: 100,
+    trafficMix: { firstPage: .7, skillFiltered: .2, secondPage: .1 },
+    runs: [], performanceGatePassed: false,
+  };
+  let server: ChildProcess | undefined;
+  let clockMonitor: ReturnType<typeof startClockMonitor> | undefined;
+  await mkdir(OUTPUT_DIR, { recursive: true });
   try {
-    const checks = await checkInvariants(pool, SEED_HACKATHON_ID);
-    const postTestFilename = isRerun ? 'loadtest/invariants-post-rerun.json' : 'loadtest/invariants-post-test.json';
-    const postTestPath = resolve(ROOT_DIR, postTestFilename);
-    await writeFile(postTestPath, JSON.stringify(checks, null, 2), 'utf-8');
-    console.info(`Saved post-test invariant checks to ${postTestPath}`);
-
-    const hasViolations = checks.some((c) => c.violations.length > 0);
-    if (hasViolations) {
-      console.error('INVARIANT VIOLATIONS DETECTED AFTER LOAD TEST!');
-      process.exitCode = 1;
-    } else {
-      console.info('All 8 database invariants passed post-load-test with 0 violations!');
+    metadata.postgres = (await pool.query("SELECT current_setting('server_version') AS version")).rows[0].version;
+    const dataset = (await pool.query(`SELECT
+      (SELECT count(*)::int FROM hackathon_participants WHERE hackathon_id=$1) AS participants,
+      (SELECT count(*)::int FROM teams WHERE hackathon_id=$1) AS teams,
+      (SELECT count(*)::int FROM team_members WHERE hackathon_id=$1) AS memberships`, [SEED_HACKATHON_ID])).rows[0];
+    metadata.dataset = dataset;
+    if (dataset.participants !== 10000 || dataset.teams !== 2000 || dataset.memberships !== 4900) throw new Error('The benchmark requires the documented 10,000-user / 2,000-team / 4,900-membership seed.');
+    const started = await startServer(); server = started.server; metadata.localPort = started.port;
+    clockMonitor = startClockMonitor();
+    let failedCode = 0;
+    for (const scenario of scenarios) {
+      const result = await runK6(scenario, started.port, isRerun);
+      (metadata.runs as unknown[]).push({ scenario, thinkSeconds: scenario === 'realistic' ? 1 : 0, ...result });
+      if (result.code !== 0) failedCode = result.code;
+      if (!existsSync(result.summaryFile)) throw new Error('k6 did not produce a fresh summary.');
+      const summary = JSON.parse(await readFile(result.summaryFile, 'utf8'));
+      const duration = summary.metrics?.['successful_board_duration{phase:measurement}'];
+      const min = duration?.values?.min ?? duration?.min;
+      if (typeof min !== 'number' || min < 0) {
+        metadata.invalidHttpTiming = true; failedCode ||= 1;
+      }
     }
+    const clockData = clockMonitor.stop(); clockMonitor = undefined;
+    metadata.clockChanges = clockData.jumps.length;
+    await writeFile(resolve(OUTPUT_DIR, 'clock-probe.json'), JSON.stringify(clockData, null, 2));
+    if (clockData.jumps.length) {
+      failedCode ||= 1;
+      console.error('Clock steps observed; this run cannot establish a reliable latency pass.');
+    }
+    const checks = await checkInvariants(pool, SEED_HACKATHON_ID);
+    await writeFile(resolve(OUTPUT_DIR, 'invariants.json'), JSON.stringify(checks, null, 2));
+    if (checks.some((check) => check.violations.length)) throw new Error('Database invariant violations after load testing.');
+    requireK6Success(failedCode);
+    metadata.performanceGatePassed = true;
   } finally {
-    await pool.end();
+    if (clockMonitor) {
+      const clockData = clockMonitor.stop(); metadata.clockChanges = clockData.jumps.length;
+      await writeFile(resolve(OUTPUT_DIR, 'clock-probe.json'), JSON.stringify(clockData, null, 2));
+    }
+    try { if (server) await stopServer(server); }
+    finally {
+      await pool.end();
+      metadata.completedAt = new Date().toISOString();
+      await writeFile(resolve(OUTPUT_DIR, 'metadata.json'), JSON.stringify(metadata, null, 2));
+      console.info(`Evidence: ${OUTPUT_DIR}`);
+    }
   }
-
-  console.info('\nLoad test execution complete.');
 }
 
 main().catch((err) => {

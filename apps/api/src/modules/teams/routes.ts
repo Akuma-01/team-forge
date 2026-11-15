@@ -36,13 +36,12 @@ export function teamRouter({ pool, config, limiter, publishTeamChange }: TeamOpt
     // accommodating 50 legitimate participants behind a single NAT in race tests without blocking.
     const releaseFlood = limiter.reserve(privateRateKey('join-flood-ip', ip), 100, 60_000);
 
-    // Fast reject if this user or IP has already exhausted their invalid-code failure budget:
-    const releaseUserCheck = limiter.reserve(`join-failed-user:${userId}`, 10, 15 * 60_000);
-    releaseUserCheck();
-    const releaseIpCheck = limiter.reserve(privateRateKey('join-failed-ip', ip), 40, 15 * 60_000);
-    releaseIpCheck();
-
     try {
+      // Even an early quota rejection must release the in-flight IP slot.
+      const releaseUserCheck = limiter.reserve(`join-failed-user:${userId}`, 10, 15 * 60_000);
+      releaseUserCheck();
+      const releaseIpCheck = limiter.reserve(privateRateKey('join-failed-ip', ip), 40, 15 * 60_000);
+      releaseIpCheck();
       await domainMutation(pool, req, res, async (tx) => ({
         status: 200,
         body: await joinTeam(tx, {

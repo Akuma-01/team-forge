@@ -10,6 +10,7 @@ import { testDatabase } from '../helpers/database.js';
 import { createParticipants } from '../helpers/factories.js';
 import { testServer } from '../helpers/testServer.js';
 import { fireAtOnce } from '../helpers/concurrency.js';
+import { assertInvariants } from '../../src/db/invariants.js';
 
 describe('same-IP concurrent join rate limiting & failure budget isolation', () => {
   let db: Awaited<ReturnType<typeof testDatabase>>;
@@ -88,6 +89,7 @@ describe('same-IP concurrent join rate limiting & failure budget isolation', () 
 
   afterEach(async () => {
     await server?.close();
+    if (db && hid) await assertInvariants(db.pool, hid);
   });
 
   afterAll(async () => {
@@ -117,6 +119,22 @@ describe('same-IP concurrent join rate limiting & failure budget isolation', () 
 
     // Exactly 1 success (200), 49 full (409), and 0 rate-limited (429)
     expect(statusCounts).toEqual({ 200: 1, 409: 49 });
+    for (const response of responses.filter((r) => r.status === 409)) {
+      expect((response.body as { error: { code: string } }).error.code).toBe('TEAM_FULL');
+    }
+  });
+
+  it('does not leak shared IP slots when a user quota rejects before the database call', async () => {
+    await db.pool.query('UPDATE hackathons SET min_team_size=1, max_team_size=1 WHERE id=$1', [hid]);
+    const created = await request(0, '/teams', 'POST', { name: 'Still reachable' });
+    expect(created.status).toBe(201);
+    const code = (created.body as { team: { inviteCode: string } }).team.inviteCode;
+    for (const user of [1, 2]) {
+      for (let i = 0; i < 10; i++) expect((await request(user, '/teams/join-by-code', 'POST', { code: inviteCode() })).status).toBe(404);
+      for (let i = 0; i < 50; i++) expect((await request(user, '/teams/join-by-code', 'POST', { code })).status).toBe(429);
+    }
+    // These 100 rejected requests must not lock an unrelated user out of the IP.
+    expect((await request(3, '/teams/join-by-code', 'POST', { code })).status).toBe(409);
   });
 
   it('repeated invalid codes from one IP trigger 429 after 40 failures', async () => {

@@ -1,9 +1,10 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { startServer, stopServer } from './benchmark-process.js';
+
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createPool } from '../apps/api/src/db/pool.js';
 import { readConfig } from '../apps/api/src/config.js';
-import { scoreCandidate } from '../apps/api/src/modules/discovery/scoring.js';
+import { median, scoreCandidate } from '../apps/api/src/modules/discovery/scoring.js';
 import type { Skill } from '@teamforge/shared';
 
 const ROOT_DIR = resolve(import.meta.dirname, '..');
@@ -32,45 +33,13 @@ function stats(values: number[]) {
   };
 }
 
-async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(url);
-      if (res.status === 200) return;
-    } catch {
-      // not ready
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`Server failed to respond at ${url}`);
-}
-
-async function startServer(): Promise<{ server: ChildProcess; port: number }> {
-  const port = 8081;
-  const server = spawn('node', ['--env-file-if-exists=.env', 'apps/api/dist/server.js'], {
-    cwd: ROOT_DIR,
-    stdio: 'ignore',
-    env: { ...process.env, PORT: String(port) },
-  });
-  await waitForServer(`http://127.0.0.1:${port}/ready`);
-  return { server, port };
-}
-
-async function stopServer(server: ChildProcess): Promise<void> {
-  if (server.killed || server.exitCode !== null) return;
-  server.kill('SIGTERM');
-  await new Promise<void>((res) => {
-    server.once('exit', () => res());
-    setTimeout(() => { server.kill('SIGKILL'); res(); }, 3000);
-  });
-}
 
 async function main() {
   console.info('Starting suggestions benchmark against 10,000-user seeded database...\n');
   const config = readConfig();
   const pool = createPool(config);
 
+  try {
   const tokens = JSON.parse(await readFile(TOKENS_PATH, 'utf-8')) as string[];
   const leaderToken = tokens[0]!;
 
@@ -110,7 +79,7 @@ async function main() {
   );
   const teamSkills = [...new Set(membersRes.rows.flatMap((r) => r.skills))];
   const offsets = membersRes.rows.map((r) => r.utc_offset_min).sort((a, b) => a - b);
-  const reference = offsets[Math.floor(offsets.length / 2)] ?? 0;
+  const reference = median(offsets);
 
   for (let i = 0; i < 100; i++) {
     const t0 = performance.now();
@@ -161,7 +130,6 @@ async function main() {
           Accept: 'application/json',
         },
       });
-      const t1 = performance.now();
       if (res.status !== 200) {
         throw new Error(`HTTP request failed with status ${res.status}`);
       }
@@ -170,11 +138,10 @@ async function main() {
       } else {
         await res.text();
       }
-      httpTimes.push(t1 - t0);
+      httpTimes.push(performance.now() - t0);
     }
   } finally {
     await stopServer(server);
-    await pool.end();
   }
 
   const results = {
@@ -205,6 +172,7 @@ async function main() {
   console.info(`Sort & Slice Time: p50=${results.metrics.sortAndSliceMs.p50}ms, p95=${results.metrics.sortAndSliceMs.p95}ms, p99=${results.metrics.sortAndSliceMs.p99}ms`);
   console.info(`Total Internal Time: p50=${results.metrics.totalInternalPipelineMs.p50}ms, p95=${results.metrics.totalInternalPipelineMs.p95}ms, p99=${results.metrics.totalInternalPipelineMs.p99}ms`);
   console.info(`HTTP End-to-End Latency: p50=${results.metrics.httpEndToEndMs.p50}ms, p95=${results.metrics.httpEndToEndMs.p95}ms, p99=${results.metrics.httpEndToEndMs.p99}ms`);
+  } finally { await pool.end(); }
 }
 
 main().catch((err) => {

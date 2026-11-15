@@ -82,6 +82,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      SEED_DEMO: "true"
       NODE_ENV: development
       DATABASE_URL: postgres://teamforge:ci-only-local@127.0.0.1:5432/teamforge_test
       DATABASE_URL_DIRECT: postgres://teamforge:ci-only-local@127.0.0.1:5432/teamforge_test

@@ -10,7 +10,7 @@ import { createApp } from '../apps/api/src/app.js';
 import { readConfig } from '../apps/api/src/config.js';
 import { testDatabase } from '../apps/api/test/helpers/database.js';
 
-const CHROMIUM_PATH = process.env.CHROMIUM_EXECUTABLE_PATH || '/home/akuma/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome';
+const CHROMIUM_PATH = process.env.CHROMIUM_EXECUTABLE_PATH;
 
 async function tabTo(page: Page, target: Locator, maxTabs = 50) {
   await target.waitFor();
@@ -88,8 +88,7 @@ async function main() {
     );
 
     browser = await chromium.launch({
-      executablePath: CHROMIUM_PATH,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      ...(CHROMIUM_PATH ? { executablePath: CHROMIUM_PATH } : {}),
     });
 
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });

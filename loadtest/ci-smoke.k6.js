@@ -6,11 +6,11 @@ import { Trend, Rate, Counter } from 'k6/metrics';
 
 // Load seeded tokens
 const tokens = new SharedArray('tokens', () => {
-  try {
-    return JSON.parse(open('./tokens.json'));
-  } catch {
-    return ['ci-fallback-token'];
+  const values = JSON.parse(open(__ENV.TOKENS_FILE || './tokens.json'));
+  if (!Array.isArray(values) || values.length < 200 || values.some((token) => typeof token !== 'string' || !token)) {
+    throw new Error('Seeded tokens are missing or invalid. Run the guarded seed before benchmarking.');
   }
+  return values;
 });
 
 const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:8080';
@@ -50,23 +50,19 @@ export function setup() {
       Cookie: `sid=${token}`,
       Accept: 'application/json',
     },
+    timeout: '5s',
+    tags: { phase: 'setup', name: 'board_setup' },
   });
-  let initialCursor = null;
-  if (res.status === 200) {
-    try {
-      const data = JSON.parse(res.body);
-      initialCursor = data.nextCursor;
-    } catch {
-      // ignore
-    }
+  if (res.status !== 200) throw new Error(`Board setup failed with HTTP ${res.status}; check token expiry and target database.`);
+  const body = res.json();
+  if (!Array.isArray(body.items) || body.items.length !== 30 || typeof body.nextCursor !== 'string' || !body.nextCursor) {
+    throw new Error('Seeded board setup must return 30 teams and a real second-page cursor.');
   }
-  return { initialCursor };
+  return { initialCursor: body.nextCursor };
 }
 
-let vuCursor = null;
-
 export default function (data) {
-  const tokenIndex = (__VU * 1000 + __ITER) % tokens.length;
+  const tokenIndex = (__VU - 1 + __ITER) % tokens.length;
   const token = tokens[tokenIndex];
 
   const roll = Math.random();
@@ -80,13 +76,8 @@ export default function (data) {
     url += `&needs=${skill}`;
     requestType = 'skill_filtered';
   } else {
-    const cursor = vuCursor || data.initialCursor;
-    if (cursor) {
-      url += `&cursor=${encodeURIComponent(cursor)}`;
-      requestType = 'second_page_cursor';
-    } else {
-      requestType = 'first_page';
-    }
+    url += `&cursor=${encodeURIComponent(data.initialCursor)}`;
+    requestType = 'second_page_cursor';
   }
 
   const res = http.get(url, {
@@ -103,20 +94,13 @@ export default function (data) {
   });
 
   const isSuccess = res.status === 200;
-  const isTimeout = res.status === 0 || res.timings.duration >= 5000;
+  const isTimeout = res.status === 0;
 
   if (isSuccess) {
     successfulDuration.add(res.timings.duration);
     failureRate.add(0);
 
-    try {
-      const body = JSON.parse(res.body);
-      if (body.nextCursor) {
-        vuCursor = body.nextCursor;
-      }
-    } catch {
-      // ignore
-    }
+
   } else {
     failureRate.add(1);
     if (isTimeout) timeoutCounter.add(1);

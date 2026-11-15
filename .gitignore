@@ -11,6 +11,7 @@ loadtest/tokens.json
 loadtest/summary.json
 loadtest/bin/
 loadtest/*.json
+loadtest/runs/
 test-results/
 playwright-report/
 .DS_Store

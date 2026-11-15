@@ -9,17 +9,20 @@
 -- 3. Non-owner status prevents teamforge_app from altering, dropping, or disabling audit triggers.
 -- 4. Existing audit_log_no_mutation trigger remains active as secondary defense.
 
--- 1. Create the runtime application role (replace password in secret manager)
+-- 1. Create the runtime role without a usable password. Provision a random
+-- password separately via the provider or psql \password; never save it here.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'teamforge_app') THEN
-    CREATE ROLE teamforge_app WITH LOGIN PASSWORD 'REPLACE_WITH_STRONG_RUNTIME_PASSWORD' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+    CREATE ROLE teamforge_app WITH LOGIN PASSWORD NULL NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
   END IF;
 END
 $$;
 
 -- 2. Schema and general table privileges
-GRANT CONNECT ON DATABASE teamforge TO teamforge_app;
+DO $$ BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO teamforge_app', current_database());
+END $$;
 GRANT USAGE ON SCHEMA public TO teamforge_app;
 
 -- Grant standard DML to mutable application tables
