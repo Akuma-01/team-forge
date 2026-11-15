@@ -12,7 +12,7 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }] },
   },
   {
-    files: ['scripts/smoke-web.mjs', 'scripts/smoke-auth.ts', 'scripts/smoke-teams.ts', 'scripts/smoke-live.ts'],
+    files: ['scripts/smoke-web.mjs', 'scripts/smoke-auth.ts', 'scripts/smoke-teams.ts', 'scripts/smoke-live.ts', 'scripts/smoke-workspace.ts'],
     languageOptions: { globals: globals.browser },
   },
   {

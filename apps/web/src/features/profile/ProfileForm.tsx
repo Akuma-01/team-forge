@@ -42,12 +42,12 @@ export function ProfileForm({ user }: { user: Profile }) {
     <Field id="profile-name" label="Display name" error={errors.displayName}>
       <input id="profile-name" disabled={mutation.isPending} autoComplete="nickname" maxLength={60} value={displayName} onChange={(e) => setDisplayName(e.target.value)} aria-invalid={!!errors.displayName} aria-describedby={errors.displayName ? 'profile-name-error' : undefined} />
     </Field>
-    <fieldset className={styles.skillFieldset} aria-describedby="skills-hint">
+    <fieldset className={styles.skillFieldset} tabIndex={-1} aria-invalid={!!errors.skills} aria-describedby={`skills-hint${errors.skills ? ' profile-skills-error' : ''}`}>
       <legend>Your skills</legend><p id="skills-hint" className={styles.muted}>Pick the things you enjoy bringing to a team.</p>
       <div className={styles.skills}>{skills.map((skill) => <label className={styles.skill} key={skill}>
         <input type="checkbox" disabled={mutation.isPending} checked={chosenSkills.includes(skill)} onChange={(e) => setChosenSkills(e.target.checked ? [...chosenSkills, skill] : chosenSkills.filter((item) => item !== skill))} />{skill}
       </label>)}</div>
-      {errors.skills && <p className={styles.fieldError}>{errors.skills}</p>}
+      {errors.skills && <p id="profile-skills-error" className={styles.fieldError}>{errors.skills}</p>}
     </fieldset>
     <Field id="offset" label="Time zone" error={errors.utcOffsetMin} hint="Choose your current UTC offset. You can change it later.">
       <select id="offset" disabled={mutation.isPending} value={utcOffsetMin} onChange={(e) => setOffset(Number(e.target.value))} aria-invalid={!!errors.utcOffsetMin} aria-describedby={`offset-hint${errors.utcOffsetMin ? ' offset-error' : ''}`}>
@@ -55,6 +55,7 @@ export function ProfileForm({ user }: { user: Profile }) {
       </select>
     </Field>
     <FormError message={errors.form} />
+    {mutation.isPending && <p role="status">Saving your profile…</p>}
     <div className={styles.formActions}><button className={styles.primary} disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save profile'}</button>
       {mutation.isSuccess && <p role="status">Your profile is saved.</p>}</div>
   </form>;

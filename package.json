@@ -24,7 +24,8 @@
     "smoke:web": "node scripts/smoke-web.mjs",
     "smoke:auth": "node --env-file-if-exists=.env --import tsx scripts/smoke-auth.ts",
     "smoke:teams": "node --env-file-if-exists=.env --import tsx scripts/smoke-teams.ts",
-    "smoke:live": "node --env-file-if-exists=.env --import tsx scripts/smoke-live.ts"
+    "smoke:live": "node --env-file-if-exists=.env --import tsx scripts/smoke-live.ts",
+    "smoke:workspace": "node --env-file-if-exists=.env --import tsx scripts/smoke-workspace.ts"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",

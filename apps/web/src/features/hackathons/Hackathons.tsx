@@ -26,15 +26,16 @@ function HackathonCard({ event, userId, teamLinks }: { event: Hackathon; userId:
     {event.registration ? <>
       <p role="status" className={styles.registered}>You’re registered</p>
       <label className={styles.preference}><input type="checkbox" checked={event.registration.openToInvites} disabled={mutation.isPending} onChange={(e) => mutation.mutate(e.target.checked)} />Open to teammate suggestions</label>
-      {teamLinks && <Link className={styles.continueLink} to={`/me?hackathon=${event.id}`}>Manage your team →</Link>}
+      {teamLinks && <Link className={styles.continueLink} to={`/?hackathon=${event.id}`}>Find teams</Link>}
     </> : <button className={styles.secondary} disabled={mutation.isPending} onClick={() => mutation.mutate(undefined)}>{mutation.isPending ? 'Registering…' : 'Register for hackathon'}</button>}
     {mutation.error && <p role="alert" className={styles.error}>{mutation.error.message}</p>}
+    {mutation.isPending && <p role="status">{event.registration ? 'Saving your preference…' : 'Registering for this hackathon…'}</p>}
   </article>;
 }
 export function Hackathons({ user, teamLinks = false }: { user: Profile; teamLinks?: boolean }) {
   const events = useQuery({ queryKey: ['hackathons', user.id], queryFn: ({ signal }) => api<{ items: Hackathon[] }>('/hackathons', { signal }) });
   return <section className={styles.events} aria-labelledby="hackathons-title">
-    <p className={styles.eyebrow}>FIND YOUR NEXT CHALLENGE</p><h2 id="hackathons-title">Choose your hackathon</h2>
+    <h2 id="hackathons-title">Choose your hackathon</h2>
     {events.isPending && <p role="status">Loading hackathons…</p>}
     {events.isError && <div role="alert"><p>{events.error.message}</p><button className={styles.secondary} onClick={() => void events.refetch()}>Try again</button></div>}
     {events.data?.items.length === 0 && <p className={styles.empty}>No hackathons are available yet. Your profile is ready for when registration opens.</p>}

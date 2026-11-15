@@ -27,13 +27,11 @@ export function AuthPage({ mode }: { mode: 'signup' | 'login' }) {
   if (session.data) return <Navigate to={session.data.registrations.length ? '/' : '/onboarding'} replace />;
   return <div className={styles.authLayout}>
     <section className={styles.authIntro}>
-      <p className={styles.eyebrow}>GOOD THINGS ARE BUILT TOGETHER</p>
-      <h1>{signup ? 'Start with your spark.' : 'Welcome back.'}</h1>
+      <h1 tabIndex={-1}>{signup ? 'Start with your spark.' : 'Welcome back.'}</h1>
       <p className={styles.intro}>Different skills. Shared ambition. Find your place in the next hackathon.</p>
       <p className={styles.promise}>A little about you.<br />A world of things to build.</p>
     </section>
     <section className={styles.panel} aria-labelledby="auth-title">
-      <p className={styles.eyebrow}>{signup ? 'YOUR FIRST STEP' : 'PICK UP WHERE YOU LEFT OFF'}</p>
       <h2 id="auth-title">{signup ? 'Create your account' : 'Sign in to TeamForge'}</h2>
       <form noValidate onSubmit={(event) => {
         event.preventDefault();
@@ -51,6 +49,7 @@ export function AuthPage({ mode }: { mode: 'signup' | 'login' }) {
           <input id="password" type="password" autoComplete={signup ? 'new-password' : 'current-password'} maxLength={128} value={password} onChange={(e) => setPassword(e.target.value)} aria-invalid={!!errors.password} aria-describedby={[signup ? 'password-hint' : '', errors.password ? 'password-error' : ''].filter(Boolean).join(' ') || undefined} />
         </Field>
         <FormError message={errors.form} />
+        {mutation.isPending && <p role="status">{signup ? 'Creating your account…' : 'Signing you in…'}</p>}
         <button className={styles.primary} disabled={mutation.isPending}>{mutation.isPending ? 'Please wait…' : signup ? 'Create account' : 'Sign in'}</button>
       </form>
       <p className={styles.switchAuth}>{signup ? 'Already have an account? ' : 'New here? '}<Link to={signup ? '/login' : '/signup'}>{signup ? 'Sign in' : 'Create an account'}</Link></p>

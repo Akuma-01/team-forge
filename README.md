@@ -2,7 +2,7 @@
 
 Team formation for hackathons, built with Node 22, Express 5, PostgreSQL 16, React 18 and TypeScript.
 
-The foundation, identity flow, team lifecycle, application/leader-control APIs, discovery APIs and live updates are implemented. The browser supports account/profile setup, registration, team creation, invite sharing, joining and leaving. The API also supports applications, decisions, member removal, team edits, invite rotation, audit history, filtered team discovery and ranked teammate suggestions; their remaining browser controls arrive in Phase 7. Mutations use transactions, idempotency keys and audit records; leadership transfers automatically when needed. Deployment remains a future milestone.
+The browser and API support account/profile setup, hackathon registration, filtered team discovery, applications and leader decisions, invite sharing/rotation, joining, leaving, member removal, team edits, explained teammate suggestions and activity history. Live updates reconcile membership and permissions across sessions. Mutations use transactions, idempotency keys and audit records; leadership transfers automatically when needed. Seeding, performance measurement and deployment remain the next milestone.
 
 ## Run locally
 
@@ -29,7 +29,9 @@ INSERT INTO hackathons (name, min_team_size, max_team_size)
 VALUES ('Local builders weekend', 2, 4);
 ```
 
-After registration, open **My team** (`/me`) or **Manage your team** on the workspace. Create a team and copy its invite code. Sign up with a second account in a separate browser/private window, register for the same hackathon, and join with the code. Team views update automatically; **Live** or **Reconnecting** reports connection state, and **Refresh team** remains available. The leave dialog explains whether leaving transfers leadership or deletes the team.
+After registration, **Find teams** (`/`) shows open teams with room. Search by name, filter by a needed skill, and use **Load more teams** to browse. **Your team and profile** contains create/join shortcuts and your applications; it starts collapsed on small screens. Open a team to apply, or use **My team** (`/me`) to create a team or join with a private code. My team also lists pending applications with withdrawal controls.
+
+Sign up with a second account in a separate browser/private window and register for the same hackathon. Apply through the board and accept from the leader's inbox, or join with the shared code. Members can inspect teammate suggestions and activity; leaders can edit the team, close applications, rotate the code and remove members. Removal changes the code. A valid private code can still join a closed team when a seat is free. Team views update automatically; **Live** or **Reconnecting** reports connection state, and **Refresh team** remains available. The leave dialog explains whether leaving transfers leadership or deletes the team.
 
 ```sh
 docker compose --profile test up -d db-test
@@ -56,7 +58,7 @@ Phase 5 adds 40 API cases for applications and leader controls, including the au
 
 The application pool stays capped at **20**, with normal authentication, rate limits and database timeouts. Participants use actual distinct loopback source addresses (`127.0.0.2` onward), requiring a host that supports binding the IPv4 loopback range, as Linux does. No forwarded-IP header or limiter bypass is used. The same-user join/replay cases use 10 attempts within the in-flight code limit; the duplicate-create case uses 20. This topology does not promise that 50 concurrent joins behind one shared IP bypass the normal 40/IP in-flight limit. It is a correctness check, not a throughput benchmark.
 
-The last-seat suite writes sanitized results, final member IDs, invariant counts, pool usage and observed clock changes to gitignored `.cache/phase4/last-seat.json`; CI uploads the JSON evidence. Some local WSL runs exposed eight-to-nine-second wall-clock jumps that caused premature PostgreSQL timeouts. Clock diagnostics never skip tests, change timeouts or excuse failed assertions; use a stable-clock host for reproducible timing checks.
+The last-seat suite writes sanitized results, final member IDs, invariant counts, pool usage and observed clock changes to gitignored `.cache/phase4/last-seat.json`; CI uploads the JSON evidence. Local WSL runs have exposed multi-second wall-clock jumps, including a measured 10.75-second backward jump during Phase 7 verification. Short-expiry, fresh-session and database-timeout checks have failed intermittently on that host. Clock diagnostics never skip tests or change assertions/timeouts; failed gates still need a clean run on a stable-clock host before deployment.
 
 `npm run migrate` prefers `DATABASE_URL_DIRECT`, applies all pending migrations in one advisory-locked transaction, and verifies checksums on later runs. Applied SQL files must not be edited; add another numbered migration. Server startup also runs migrations and stops on failure. The API build copies SQL alongside the compiled runner.
 
@@ -70,13 +72,16 @@ npm run build
 npm run smoke:auth
 npm run smoke:teams
 npm run smoke:live
+npm run smoke:workspace
 ```
 
 `smoke:auth` needs the local test database. It starts its own server, creates a temporary schema and real hackathon fixture, and checks signup, keyboard onboarding, profile persistence, registration/preference, logout/login, expiry and account isolation at 375px and 1280px. It removes its schema and closes the server/browser afterward. Screenshots are written to gitignored `.cache/phase2/`. `CHROMIUM_EXECUTABLE_PATH` can point to an existing compatible Chromium. The lighter `smoke:web` still checks rendering, keyboard access, health/readiness and API routing against a running dev app; `BASE_URL` overrides its default URL.
 
-`smoke:teams` uses the same isolated test-database guard with two real browser accounts at both widths. It deliberately drops a response **after** the create request commits and checks that the retry reuses the key and creates only one team. It also covers copy/join, leader-only invite visibility, leave-dialog keyboard behavior, promotion, deletion and invariants. Its screenshots are under `.cache/phase3/`.
+`smoke:teams` uses the same isolated test-database guard with two real browser accounts at both widths. Signup, registration, creation, copy/join and leave use Tab navigation and keyboard activation. It deliberately drops a response **after** the create request commits and checks that the retry reuses the key and creates only one team. It also covers leader-only invite visibility, dialog focus/Escape, promotion, deletion and invariants. Its screenshots are under `.cache/phase3/`.
 
 `smoke:live` opens three authenticated browser contexts against a real database and stream server. It checks join/accept/leave updates, an event during an initial fetch, recovery when notifications are deliberately dropped, focus/reconnect reconciliation, leadership transfer, removal and logout. The missing-event case waits for the normal 30-second visible-page reconciliation interval.
+
+`smoke:workspace` checks Phase 7 at 375px and 1280px with three authenticated sessions. It covers board pagination/filtering, empty/error recovery, lost application responses, withdrawal/reapplication, decisions, real capacity conflicts, explained suggestions, activity, edits, expired/rotated codes, removal, permission changes and deletion. It verifies the same idempotency key after a lost response and a new key after a terminal conflict. It also checks dialog/route focus, reduced-motion layouts and no overflow at 320px. Requests use the real API and database; only the read-failure recovery case injects a 503. Screenshots and machine-readable results are under `.cache/phase7/`, and CI uploads that evidence.
 
 ## Identity and request boundaries
 
@@ -152,12 +157,12 @@ Express serves `apps/web/dist` and the API from one process. `APP_ORIGIN` must b
 
 ```text
 apps/api/          Express app factory, server, configuration, PostgreSQL pool
-apps/web/          React identity/team screens, session queries and CSS modules
+apps/web/          React board, team, application and profile screens
 packages/shared/  Browser-safe schemas, DTO types, error codes, skill catalogue
 scripts/          Connectivity and browser checks; explicit pending commands
-docs/             Build status and deployment prerequisites
+docs/             Deployment prerequisites; local progress notes are ignored
 ```
 
 Shared code compiles before its consumers and exports JavaScript from `dist`; browser code must not import API or database modules. Password hashes never belong in response DTOs, including the current user's profile.
 
-`ARCHITECTURE.md` is a local planning reference excluded from Git at the owner's request. Phase 6 is the current review/commit boundary; the remaining browser flows follow in Phase 7. Progress notes are kept locally and excluded from Git.
+`ARCHITECTURE.md` is a local planning reference excluded from Git at the owner's request. Phase 7 is the current review/commit boundary. Phase 8 covers seeding, load/chaos measurement, deployment and hosted verification; Phase 9 covers submission packaging. Progress notes are kept locally and excluded from Git.

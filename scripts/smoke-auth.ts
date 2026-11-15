@@ -84,7 +84,7 @@ try {
       await noOverflow(page);
       await page.screenshot({ path: `${screenshotDirectory}/onboarding-${width}.png`, fullPage: true });
       await page.keyboard.press('Tab');
-      assert.match(await page.locator(':focus').textContent() ?? '', /Go to your workspace/);
+      assert.equal(await page.locator(':focus').textContent(), 'Find teams');
       await page.keyboard.press('Enter');
       await page.getByRole('heading', { name: `Hello, Builder ${width}.` }).waitFor();
       const sid = (await context.cookies()).find((cookie) => cookie.name === 'sid');
