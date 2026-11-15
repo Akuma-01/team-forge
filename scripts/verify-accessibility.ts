@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
@@ -10,7 +11,8 @@ import { createApp } from '../apps/api/src/app.js';
 import { readConfig } from '../apps/api/src/config.js';
 import { testDatabase } from '../apps/api/test/helpers/database.js';
 
-const CHROMIUM_PATH = process.env.CHROMIUM_EXECUTABLE_PATH;
+const defaultChromium = '/home/akuma/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome';
+const CHROMIUM_PATH = process.env.CHROMIUM_EXECUTABLE_PATH || (existsSync(defaultChromium) ? defaultChromium : undefined);
 
 async function tabTo(page: Page, target: Locator, maxTabs = 50) {
   await target.waitFor();
@@ -89,6 +91,7 @@ async function main() {
 
     browser = await chromium.launch({
       ...(CHROMIUM_PATH ? { executablePath: CHROMIUM_PATH } : {}),
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
